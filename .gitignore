@@ -1,0 +1,29 @@
+# CMake build directories
+/build/
+/cmake-build-*/
+
+# Local IDE files
+/.vs/
+/.idea/
+*.user
+*.suo
+
+# Local datasets (do not commit course data)
+/data/
+/datasets/
+/bank-additional/
+
+# Compiler and linker artifacts
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dll
+*.exe
+*.pdb
+
+# Temporary files
+*.tmp
+*.temp
+*~
