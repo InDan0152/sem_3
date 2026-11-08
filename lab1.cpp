@@ -1,6 +1,7 @@
 
 #include <iostream>
 #include <filesystem>
+#include <iomanip>
 #include "csv_loader.hpp"
 
 using namespace std;
@@ -11,11 +12,7 @@ int main() {
     const string filename = (filesystem::path(__FILE__).parent_path()
         / "bank-additional/bank-additional/bank-additional.csv").string();
 
-    const CsvConfig config{
-        ';',
-        "unknown",
-        true
-    };
+    const CsvConfig config{ ';', "unknown", true };
 
     Dataset dataset;
 
@@ -23,7 +20,7 @@ int main() {
         return 1;
     }
 
-    // Определяем количество записей.
+    // Определяем количество объектов
     size_t recordCount = 0;
 
     if (!dataset.columns.empty()) {
@@ -31,54 +28,67 @@ int main() {
 
         if (firstColumn.type == FeatureType::Numerical) {
             recordCount = firstColumn.numericalValues.size();
-        } else {
+        }
+        else {
             recordCount = firstColumn.categoricalValues.size();
         }
     }
 
-    cout << "CSV-файл успешно загружен\n";
-    cout << "Количество признаков: " << dataset.columns.size() << endl;
-    cout << "Количество записей: " << recordCount << endl;
+    cout << "CSV-файл успешно загружен\n\n";
 
-    int z = 1;
+    cout << "Объектов: " << recordCount << endl;
+    cout << "Признаков: " << dataset.columns.size() << "\n\n";
 
-    if (z == 1) {
-        cout << "Информация о столбцах:" << endl;
+    cout << "# | Признак | Тип | Пропуски" << endl;
+    cout << "-----------------------------------------------" << endl;
 
-        size_t totalMissing = 0;
+    size_t totalMissing = 0;
+    size_t featuresWithMissing = 0;
 
-        for (const auto& column : dataset.columns) {
-            size_t missingCount = 0;
+    for (size_t i = 0; i < dataset.columns.size(); ++i) {
+        const auto& column = dataset.columns[i];
 
-            if (column.type == FeatureType::Numerical) {
-                for (const auto& value : column.numericalValues) {
-                    if (!value.has_value()) {
-                        ++missingCount;
-                    }
-                }
-            } else {
-                for (const auto& value : column.categoricalValues) {
-                    if (!value.has_value()) {
-                        ++missingCount;
-                    }
+        size_t missingCount = 0;
+
+        if (column.type == FeatureType::Numerical) {
+            for (const auto& value : column.numericalValues) {
+                if (!value.has_value()) {
+                    ++missingCount;
                 }
             }
-
-            totalMissing += missingCount;
-
-            cout << column.name << " | ";
-
-            if (column.type == FeatureType::Numerical) {
-                cout << "числовой";
-            } else {
-                cout << "категориальный";
+        }
+        else {
+            for (const auto& value : column.categoricalValues) {
+                if (!value.has_value()) {
+                    ++missingCount;
+                }
             }
-
-            cout << " | пропусков: " << missingCount << endl;
         }
 
-        cout << "Всего пропусков: " << totalMissing << endl;
+        totalMissing += missingCount;
+
+        if (missingCount > 0) {
+            ++featuresWithMissing;
+        }
+
+        double missingPercentage = 0.0;
+
+        if (recordCount > 0) {
+            missingPercentage =
+                static_cast<double>(missingCount) / recordCount * 100.0;
+        }
+
+            cout << i << " | "<< column.name << " | "<< (column.type == FeatureType::Numerical
+         ? "числовой" : "категориальный") << " | " << missingCount;
+
+    if (missingCount > 0) {cout << " (" << fixed << setprecision(2) << missingPercentage << "%)";}
+
+cout << '\n';
+
     }
+
+    cout << "\nВсего пропусков: " << totalMissing
+         << " в " << featuresWithMissing << " признаках" << endl;
 
     return 0;
 }
