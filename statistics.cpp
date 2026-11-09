@@ -16,7 +16,7 @@ void calculateHistogram(
 
 namespace {
 
-// Среднее арифметическое. span предоставляет доступ к данным без копирования.
+//средн арифм
 double calculateMean(span<const double> values) {
     double sum = 0.0;
 
@@ -27,7 +27,7 @@ double calculateMean(span<const double> values) {
     return sum / values.size();
 }
 
-// Генеральная дисперсия.
+//генеральная дисперсия
 double calculateVariance(span<const double> values, double mean) {
     double squaredDifferences = 0.0;
 
@@ -38,8 +38,7 @@ double calculateVariance(span<const double> values, double mean) {
     return squaredDifferences / values.size();
 }
 
-// Квантиль методом линейной интерполяции.
-// values должен быть отсортирован.
+//квантиль
 double calculateQuantile(span<const double> values, double p) {
     double position = p * (values.size() - 1);
 
@@ -56,9 +55,9 @@ double calculateQuantile(span<const double> values, double p) {
         fraction * (values[upperIndex] - values[lowerIndex]);
 }
 
-} // namespace
+}//namespace
 
-// Вычисление статистики числового признака
+
 bool calculateNumericalStatistics(
     const Column& column,
     NumericalStatistics& statistics,
@@ -99,7 +98,7 @@ bool calculateNumericalStatistics(
 
 
     statistics.mean = calculateMean(values);
-        statistics.variance = calculateVariance(values, statistics.mean);
+    statistics.variance = calculateVariance(values, statistics.mean);
 
 //квантили
     statistics.q05 = calculateQuantile(values, 0.05);
