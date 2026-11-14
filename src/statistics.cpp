@@ -118,6 +118,7 @@ bool calculateNumericalStatistics(
     statistics = CategoricalStatistics{};
 
     map<string, size_t> frequencies;
+    // todo: map vs unordered_map, что находится по факту внутри?
 
     for (const auto& value : column.categoricalValues) {
         if (value.has_value()) {

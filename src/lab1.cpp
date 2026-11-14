@@ -67,12 +67,12 @@ int main(int argc, char* argv[]) {
 
 
 const string defaultInput =
-    (filesystem::path(__FILE__).parent_path() /
+    (filesystem::path(__FILE__).parent_path().parent_path() /
      "bank-additional/bank-additional/bank-additional.csv").string();
 
 
 const string defaultOutput =
-    (filesystem::path(__FILE__).parent_path() /
+    (filesystem::path(__FILE__).parent_path().parent_path() /
      "bank-additional-processed.csv").string();
 
 

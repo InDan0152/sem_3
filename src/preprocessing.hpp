@@ -21,7 +21,9 @@ enum class ScalingStrategy {
     MinMax,
     Standard,
     Robust
-};
+}; // todo: зачем нужно масштабирование?
+
+// todo: во что превращает компилятор лямбда функцию и что такое раскрутка стека?
 
 enum class EncodingStrategy {
     OneHot,

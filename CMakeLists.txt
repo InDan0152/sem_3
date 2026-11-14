@@ -19,12 +19,12 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Библиотека с логикой загрузки, анализа и предобработки
 add_library(lab1_core
-    csv_loader.cpp
-    statistics.cpp
-    preprocessing.cpp
+    src/csv_loader.cpp
+    src/statistics.cpp
+    src/preprocessing.cpp
 )
 
-target_include_directories(lab1_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(lab1_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 # Предупреждения компилятора
 if(MSVC)
@@ -34,7 +34,7 @@ else()
 endif()
 
 # Консольное приложение
-add_executable(lab1 lab1.cpp)
+add_executable(lab1 src/lab1.cpp)
 target_link_libraries(lab1 PRIVATE cxxopts::cxxopts)
 target_link_libraries(lab1 PRIVATE lab1_core)
 
@@ -48,7 +48,7 @@ endif()
 include(CTest)
 
 if(BUILD_TESTING)
-    add_executable(lab1_tests lab1_tests.cpp)
+    add_executable(lab1_tests src/lab1_tests.cpp)
     target_link_libraries(lab1_tests PRIVATE lab1_core)
 
     if(MSVC)
