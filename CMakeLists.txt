@@ -24,6 +24,11 @@ add_library(lab1_core
     src/preprocessing.cpp
     src/supervised_dataset.cpp
     src/dataset_splitter.cpp
+    src/matrix.cpp
+    src/distance.cpp
+    src/neighbor_search.cpp
+    src/knn.cpp
+    src/decision_stump.cpp
 )
 
 target_include_directories(lab1_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -60,4 +65,10 @@ if(BUILD_TESTING)
     endif()
 
     add_test(NAME lab1_tests COMMAND lab1_tests)
+
+        add_executable(decision_stump_tests src/decision_stump_tests.cpp)
+    target_link_libraries(decision_stump_tests PRIVATE lab1_core)
+
+    add_test(NAME decision_stump_tests
+            COMMAND decision_stump_tests)
 endif()
