@@ -12,6 +12,7 @@
 #include <map>
 #include <numeric>
 #include <random>
+#include <memory>
 
 using namespace std;
 
@@ -42,6 +43,26 @@ void check_throws(Function function, const string& message) {
     }
 
     check(exceptionThrown, message);
+}
+
+// Проверка, что функция выбрасывает исключение нужного типа.
+template <typename ExpectedException, typename Function>
+void check_throws_type(Function function, const string& message) {
+    bool correctExceptionThrown = false;
+
+    try {
+        function();
+    }
+    catch (const ExpectedException&) {
+        correctExceptionThrown = true;
+    }
+    catch (...) {
+        throw runtime_error(
+            message + ": выброшено исключение неправильного типа"
+        );
+    }
+
+    check(correctExceptionThrown, message);
 }
 
 // Регрессия: проверяем выбор разбиения и предсказания.
@@ -478,6 +499,116 @@ void test_random_against_naive() {
     }
 }
 
+// Проверяем несовпадение количества объектов и целевых значений.
+void test_fit_dimension_mismatch() {
+    Matrix features({
+        {0.0},
+        {1.0},
+        {2.0}
+    });
+
+    vector<double> target = {0.0, 1.0};
+
+    DecisionStump model(SplitCriterion::Variance, 1);
+
+    check_throws_type<DimensionMismatchError>(
+        [&]() {
+            model.fit(features, target);
+        },
+        "fit: ожидалось DimensionMismatchError"
+    );
+}
+
+// Проверяем обучение на пустой выборке.
+void test_empty_training_data() {
+    Matrix features(0, 1);
+    vector<double> target;
+
+    DecisionStump model(SplitCriterion::Variance, 1);
+
+    check_throws_type<InvalidParameterError>(
+        [&]() {
+            model.fit(features, target);
+        },
+        "Пустая выборка: ожидалось InvalidParameterError"
+    );
+}
+
+// Проверяем недопустимое значение min_samples_leaf.
+void test_invalid_min_samples_leaf() {
+    check_throws_type<InvalidParameterError>(
+        []() {
+            DecisionStump model(SplitCriterion::Variance, 0);
+        },
+        "min_samples_leaf = 0: ожидалось InvalidParameterError"
+    );
+}
+
+// Проверяем доступ к строке матрицы за границами.
+void test_matrix_out_of_range() {
+    Matrix features(2, 2);
+
+    check_throws_type<out_of_range>(
+        [&]() {
+            features.at(2);
+        },
+        "Matrix::at: ожидалось out_of_range"
+    );
+}
+
+// Проверяем классификацию, если все объекты принадлежат одному классу.
+void test_single_class_classification() {
+    Matrix features({
+        {1.0},
+        {2.0},
+        {3.0}
+    });
+
+    vector<double> target = {5.0, 5.0, 5.0};
+
+    DecisionStump model(SplitCriterion::Gini, 1);
+    model.fit(features, target);
+
+    vector<double> predictions = model.predict(features);
+
+    for (double prediction : predictions) {
+        check_near(
+            prediction,
+            5.0,
+            "Один класс: ожидалось постоянное предсказание"
+        );
+    }
+}
+
+// Проверяем работу модели через базовый интерфейс IModel.
+void test_i_model_integration() {
+    Matrix features({
+        {0.0},
+        {1.0},
+        {2.0},
+        {3.0}
+    });
+
+    vector<double> target = {0.0, 0.0, 10.0, 10.0};
+
+    unique_ptr<IModel> model = make_unique<DecisionStump>(
+        SplitCriterion::Variance,
+        1
+    );
+
+    model->fit(features, target);
+
+    vector<double> predictions = model->predict(features);
+
+    check(predictions.size() == 4,
+          "IModel: неправильное количество предсказаний");
+
+    check_near(predictions[0], 0.0,
+               "IModel: неправильное предсказание слева");
+
+    check_near(predictions[3], 10.0,
+               "IModel: неправильное предсказание справа");
+}
 int main() {
     try {
         test_regression();
@@ -500,6 +631,24 @@ int main() {
 
         test_wrong_feature_count();
         cout << "[OK] Несовпадение размерностей" << endl;
+
+        test_fit_dimension_mismatch();
+        cout << "[OK] Несовпадение размерностей при fit" << endl;
+
+        test_empty_training_data();
+        cout << "[OK] Пустая обучающая выборка" << endl;
+
+        test_invalid_min_samples_leaf();
+        cout << "[OK] Некорректный min_samples_leaf" << endl;
+
+        test_matrix_out_of_range();
+        cout << "[OK] Выход за границы Matrix::at()" << endl;
+
+        test_single_class_classification();
+        cout << "[OK] Классификация с одним классом" << endl;
+
+        test_i_model_integration();
+        cout << "[OK] Интеграция через IModel" << endl;
 
         test_random_against_naive();
         cout << "[OK] Сравнение с наивным алгоритмом (200 наборов)" << endl;

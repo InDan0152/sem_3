@@ -1,3 +1,4 @@
+
 cmake_minimum_required(VERSION 3.24)
 
 project(lab_1_data_processing LANGUAGES CXX)
@@ -13,11 +14,54 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(cxxopts)
 
+# Настройки языка
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Библиотека с логикой загрузки, анализа и предобработки
+# Общие настройки компилятора
+add_library(project_options INTERFACE)
+
+# Предупреждения компилятора
+if(MSVC)
+    target_compile_options(project_options INTERFACE /W4)
+else()
+    target_compile_options(
+        project_options
+        INTERFACE
+        -Wall
+        -Wextra
+        -Wpedantic
+    )
+endif()
+
+# Санитайзеры включаются только там, где доступны runtime-библиотеки
+if(MSVC)
+    # AddressSanitizer для MSVC
+    target_compile_options(
+        project_options
+        INTERFACE
+        "$<$<CONFIG:Debug>:/fsanitize=address>"
+    )
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT WIN32)
+    # AddressSanitizer и UndefinedBehaviorSanitizer
+    target_compile_options(
+        project_options
+        INTERFACE
+        "$<$<CONFIG:Debug>:-fsanitize=address,undefined>"
+        "$<$<CONFIG:Debug>:-fno-omit-frame-pointer>"
+    )
+
+    target_link_options(
+        project_options
+        INTERFACE
+        "$<$<CONFIG:Debug>:-fsanitize=address,undefined>"
+    )
+else()
+    message(STATUS "Санитайзеры отключены для текущей конфигурации компилятора")
+endif()
+
+# Библиотека с логикой загрузки, анализа и моделей
 add_library(lab1_core
     src/csv_loader.cpp
     src/statistics.cpp
@@ -31,44 +75,58 @@ add_library(lab1_core
     src/decision_stump.cpp
 )
 
-target_include_directories(lab1_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_include_directories(
+    lab1_core
+    PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
 
-# Предупреждения компилятора
-if(MSVC)
-    target_compile_options(lab1_core PRIVATE /W4)
-else()
-    target_compile_options(lab1_core PRIVATE -Wall -Wextra)
-endif()
+target_link_libraries(lab1_core PUBLIC project_options)
 
 # Консольное приложение
 add_executable(lab1 src/lab1.cpp)
-target_link_libraries(lab1 PRIVATE cxxopts::cxxopts)
-target_link_libraries(lab1 PRIVATE lab1_core)
 
-if(MSVC)
-    target_compile_options(lab1 PRIVATE /W4)
-else()
-    target_compile_options(lab1 PRIVATE -Wall -Wextra)
-endif()
+target_link_libraries(
+    lab1
+    PRIVATE
+    lab1_core
+    cxxopts::cxxopts
+)
 
 # Автоматические тесты
 include(CTest)
 
 if(BUILD_TESTING)
+
+    # Тесты лабораторной работы №1
     add_executable(lab1_tests src/lab1_tests.cpp)
-    target_link_libraries(lab1_tests PRIVATE lab1_core)
 
-    if(MSVC)
-        target_compile_options(lab1_tests PRIVATE /W4)
-    else()
-        target_compile_options(lab1_tests PRIVATE -Wall -Wextra)
-    endif()
+    target_link_libraries(
+        lab1_tests
+        PRIVATE
+        lab1_core
+    )
 
-    add_test(NAME lab1_tests COMMAND lab1_tests)
+    add_test(
+        NAME lab1_tests
+        COMMAND lab1_tests
+    )
 
-        add_executable(decision_stump_tests src/decision_stump_tests.cpp)
-    target_link_libraries(decision_stump_tests PRIVATE lab1_core)
+    # Тесты решающего пня
+    add_executable(
+        decision_stump_tests
+        src/decision_stump_tests.cpp
+    )
 
-    add_test(NAME decision_stump_tests
-            COMMAND decision_stump_tests)
+    target_link_libraries(
+        decision_stump_tests
+        PRIVATE
+        lab1_core
+    )
+
+    add_test(
+        NAME decision_stump_tests
+        COMMAND decision_stump_tests
+    )
+
 endif()
