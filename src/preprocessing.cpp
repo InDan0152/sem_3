@@ -8,6 +8,8 @@
 #include <algorithm>
 #include <iostream>
 #include <set>
+#include <stdexcept>
+#include <numeric>
 
 using namespace std;
 
@@ -251,6 +253,37 @@ vector<vector<double>>& data,vector<string>& featureNames,EncodingStrategy strat
 } 
 }
 
+// Вычисляет медиану числового набора данных.
+static double calculateMedian(vector<double> values) {
+    if (values.empty()) {
+        throw invalid_argument(
+            "Невозможно вычислить медиану пустого набора данных"
+        );
+    }
+
+    sort(values.begin(), values.end());
+
+    size_t middle = values.size() / 2;
+
+    if (values.size() % 2 == 0) {
+        return (values[middle - 1] + values[middle]) / 2.0;
+    }
+
+    return values[middle];
+}
+
+// Вычисляет среднее арифметическое.
+static double calculateMean(const vector<double>& values) {
+    if (values.empty()) {
+        throw invalid_argument(
+            "Невозможно вычислить среднее пустого набора данных"
+        );
+    }
+
+    double sum = accumulate(values.begin(), values.end(), 0.0);
+
+    return sum / static_cast<double>(values.size());
+}
 
 bool preprocessDataset(
     const Dataset& dataset,
@@ -294,7 +327,7 @@ bool preprocessDataset(
             if (!fillNumericalMissing(
                     column, values, config.numericalMissing)) {
                 cerr << "Ошибка заполнения числового признака "
-                     << column.name << '\n';
+                    << column.name << '\n';
                 return false;
             }
 
@@ -316,7 +349,7 @@ bool preprocessDataset(
                     column, values, config.categoricalMissing)) {
                 cerr << "Ошибка заполнения категориального признака "
                      << column.name << '\n';
-                                    return false;
+                return false;
             }
 
             if (!encodeCategoricalValues(
@@ -516,4 +549,320 @@ bool compareProcessedDatasets(
     }
 
     return true;
+}
+
+DatasetPreprocessor::DatasetPreprocessor(const PreprocessingConfig& config) : config(config) {}
+
+
+void DatasetPreprocessor::fit(const Dataset& dataset) {
+    fitted = false;
+    // Проверяем, что набор данных не пустой.
+    if (dataset.columns.empty()) {
+        throw invalid_argument("Набор данных пуст");
+    }
+
+    // Определяем количество объектов.
+    const Column& firstColumn = dataset.columns.front();
+
+    size_t rowCount =
+        firstColumn.type == FeatureType::Numerical
+            ? firstColumn.numericalValues.size()
+            : firstColumn.categoricalValues.size();
+
+    if (rowCount == 0) {
+        throw invalid_argument(
+            "Набор данных не содержит объектов"
+        );
+    }
+
+    // Очищаем предыдущие параметры.
+    featureParams.clear();
+    outputFeatureNames.clear();
+
+    // Обрабатываем каждый признак отдельно.
+    for (const Column& column : dataset.columns) {
+        FeatureTransformParams params;
+
+        params.name = column.name;
+        params.type = column.type;
+
+        if (column.type == FeatureType::Numerical) {
+            // Проверяем размер числового столбца.
+            if (column.numericalValues.size() != rowCount) {
+                throw invalid_argument(
+                    "Некорректное количество значений в столбце: "
+                    + column.name
+                );
+            }
+
+            // Собираем существующие числовые значения.
+            vector<double> values;
+
+            for (const auto& value : column.numericalValues) {
+                if (value.has_value()) {
+                    values.push_back(*value);
+                }
+            }
+
+            if (values.empty()) {
+                throw invalid_argument(
+                    "Числовой признак полностью состоит из пропусков: "
+                    + column.name
+                );
+            }
+
+            // Определяем значение для заполнения пропусков.
+            switch (config.numericalMissing) {
+                case NumericalMissingStrategy::Mean:
+                    params.numericalParams.imputationValue =
+                        calculateMean(values);
+                    break;
+
+                case NumericalMissingStrategy::Median:
+                    params.numericalParams.imputationValue =
+                        calculateMedian(values);
+                    break;
+
+                case NumericalMissingStrategy::Zero:
+                    params.numericalParams.imputationValue = 0.0;
+                    break;
+            }
+
+            // Вычисляем параметры масштабирования.
+            double center = 0.0;
+            double scale = 1.0;
+
+            switch (config.scaling) {
+                case ScalingStrategy::MinMax: {
+                    auto minMax = minmax_element(
+                        values.begin(), values.end()
+                    );
+
+                    center = *minMax.first;
+                    scale = *minMax.second - center;
+                    break;
+                }
+
+                case ScalingStrategy::Standard: {
+                    center = calculateMean(values);
+
+                    double sumSquares = 0.0;
+
+                    for (double value : values) {
+                        double difference = value - center;
+                        sumSquares += difference * difference;
+                    }
+
+                    scale = sqrt(
+                        sumSquares / static_cast<double>(values.size())
+                    );
+                    break;
+                }
+
+                case ScalingStrategy::Robust: {
+                    // Сортируем значения для вычисления квартилей.
+                    vector<double> sortedValues = values;
+                    sort(sortedValues.begin(), sortedValues.end());
+
+                    const size_t middle = sortedValues.size() / 2;
+
+                    // Вычисляем медиану.
+                    center = calculateMedian(sortedValues);
+
+                    // Разделяем значения на нижнюю и верхнюю половины.
+                    vector<double> lower(
+                        sortedValues.begin(),
+                        sortedValues.begin() + middle
+                    );
+
+                    vector<double> upper(
+                        sortedValues.begin() +
+                            (sortedValues.size() % 2 == 0
+                                ? middle
+                                : middle + 1),
+                        sortedValues.end()
+                    );
+
+                    // Вычисляем межквартильный размах.
+                    if (!lower.empty() && !upper.empty()) {
+                        double q1 = calculateMedian(lower);
+                        double q3 = calculateMedian(upper);
+
+                        scale = q3 - q1;
+                    } else {
+                        scale = 1.0;
+                    }
+
+                    break;
+                }
+            }
+
+            // Защита от деления на ноль.
+            if (scale == 0.0) {
+                scale = 1.0;
+            }
+
+            params.numericalParams.center = center;
+            params.numericalParams.scale = scale;
+
+            outputFeatureNames.push_back(column.name);
+        } else {
+            // Проверяем размер категориального столбца.
+            if (column.categoricalValues.size() != rowCount) {
+                throw invalid_argument(
+                    "Некорректное количество значений в столбце: "
+                    + column.name
+                );
+            }
+
+            // Запоминаем категории, встречающиеся в обучающих данных.
+            for (const auto& value : column.categoricalValues) {
+                string category = value.has_value()
+                    ? *value
+                    : "__MISSING__";
+
+                if (find(
+                    params.categories.begin(),
+                    params.categories.end(),
+                    category
+                ) == params.categories.end()) {
+                    params.categories.push_back(category);
+                }
+            }
+
+            // Формируем имена новых признаков.
+            if (config.encoding == EncodingStrategy::OneHot) {
+                for (const string& category : params.categories) {
+                    outputFeatureNames.push_back(
+                        column.name + "_" + category
+                    );
+                }
+            } else {
+                outputFeatureNames.push_back(column.name);
+            }
+        }
+
+        featureParams.push_back(params);
+    }
+
+    // Отмечаем, что параметры предобработки рассчитаны.
+    fitted = true;
+}
+
+
+ProcessedDataset DatasetPreprocessor::transform(const Dataset& dataset) const {
+    // Проверяем, что предварительное обучение выполнено.
+    if (!fitted) {
+        throw invalid_argument(
+            "Предобработчик ещё не обучен. Сначала вызовите fit()"
+        );
+    }
+
+    // Проверяем количество признаков.
+    if (dataset.columns.size() != featureParams.size()) {
+        throw invalid_argument(
+            "Количество признаков не совпадает с обучающей выборкой"
+        );
+    }
+
+    // Определяем количество объектов.
+    const Column& firstColumn = dataset.columns.front();
+
+    size_t rowCount =
+        firstColumn.type == FeatureType::Numerical
+            ? firstColumn.numericalValues.size()
+            : firstColumn.categoricalValues.size();
+
+    // Проверяем размеры и порядок признаков.
+    for (size_t i = 0; i < dataset.columns.size(); ++i) {
+        const Column& column = dataset.columns[i];
+        const FeatureTransformParams& params = featureParams[i];
+
+        if (column.name != params.name ||
+            column.type != params.type) {
+            throw invalid_argument(
+                "Структура признаков не совпадает с обучающей выборкой"
+            );
+        }
+
+        size_t columnSize =
+            column.type == FeatureType::Numerical
+                ? column.numericalValues.size()
+                : column.categoricalValues.size();
+
+        if (columnSize != rowCount) {
+            throw invalid_argument(
+                "Некорректное количество значений в столбце: "
+                + column.name
+            );
+        }
+    }
+
+    ProcessedDataset result;
+
+    result.featureNames = outputFeatureNames;
+    result.data.assign(rowCount, {});
+
+    // Обрабатываем каждый признак.
+    for (size_t j = 0; j < dataset.columns.size(); ++j) {
+        const Column& column = dataset.columns[j];
+        const FeatureTransformParams& params = featureParams[j];
+
+        if (column.type == FeatureType::Numerical) {
+            // Заполняем пропуски сохранённым значением.
+            for (size_t i = 0; i < rowCount; ++i) {
+                double value = column.numericalValues[i].has_value()
+                    ? *column.numericalValues[i]
+                    : params.numericalParams.imputationValue;
+
+                // Масштабируем с параметрами обучающей выборки.
+                value = (value - params.numericalParams.center) /
+                        params.numericalParams.scale;
+
+                result.data[i].push_back(value);
+            }
+        } else {
+            // Обрабатываем категориальный признак.
+            for (size_t i = 0; i < rowCount; ++i) {
+                string category = column.categoricalValues[i].has_value()
+                    ? *column.categoricalValues[i]
+                    : "__MISSING__";
+
+                auto it = find(
+                    params.categories.begin(),
+                    params.categories.end(),
+                    category
+                );
+
+                if (config.encoding == EncodingStrategy::OneHot) {
+                    // Для неизвестной категории все значения будут равны 0.
+                    for (const string& knownCategory : params.categories) {
+                        result.data[i].push_back(
+                            category == knownCategory ? 1.0 : 0.0
+                        );
+                    }
+                } else {
+                    // Для неизвестной категории используем код -1.
+                    if (it == params.categories.end()) {
+                        result.data[i].push_back(-1.0);
+                    } else {
+                        size_t categoryCode = static_cast<size_t>(
+                            distance(params.categories.begin(), it)
+                        );
+
+                        result.data[i].push_back(
+                            static_cast<double>(categoryCode)
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    return result;
+}
+
+ProcessedDataset DatasetPreprocessor::fitTransform(const Dataset& dataset) {
+    fit(dataset);
+    return transform(dataset);
 }

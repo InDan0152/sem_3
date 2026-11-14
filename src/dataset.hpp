@@ -26,7 +26,16 @@ struct Column {
     vector<optional<string>> categoricalValues;
 };
 
-
 struct Dataset {
     vector<Column> columns;
+};
+
+struct SupervisedDataset {
+    Dataset features;
+    vector<double> targets;
+};
+
+struct DatasetSplit {
+    SupervisedDataset train;
+    SupervisedDataset test;
 };

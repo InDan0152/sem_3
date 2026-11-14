@@ -22,6 +22,8 @@ add_library(lab1_core
     src/csv_loader.cpp
     src/statistics.cpp
     src/preprocessing.cpp
+    src/supervised_dataset.cpp
+    src/dataset_splitter.cpp
 )
 
 target_include_directories(lab1_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)

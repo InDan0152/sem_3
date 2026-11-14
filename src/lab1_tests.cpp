@@ -1,6 +1,8 @@
 #include "csv_loader.hpp"
 #include "statistics.hpp"
 #include "preprocessing.hpp"
+#include "supervised_dataset.hpp"
+#include "dataset_splitter.hpp"
 
 #include <iostream>
 #include <fstream>
@@ -265,6 +267,254 @@ bool testOrdinalEncoding() {
            result.data == expected;
 }
 
+// Тест 10. Выделение целевого столбца
+bool testSupervisedDataset() {
+    Dataset dataset;
+
+    // Создаём числовой признак.
+    Column age;
+    age.name = "age";
+    age.type = FeatureType::Numerical;
+    age.numericalValues = {25.0, 30.0, 35.0};
+
+    // Создаём категориальный признак.
+    Column job;
+    job.name = "job";
+    job.type = FeatureType::Categorical;
+    job.categoricalValues = {
+        string("admin"),
+        string("services"),
+        string("admin")
+    };
+
+    // Создаём целевой столбец.
+    Column target;
+    target.name = "y";
+    target.type = FeatureType::Categorical;
+    target.categoricalValues = {
+        string("no"),
+        string("yes"),
+        string("no")
+    };
+
+    dataset.columns = {age, job, target};
+
+    // Задаём соответствие категорий числам.
+    map<string, double> mapping = {
+        {"no", 0.0},
+        {"yes", 1.0}
+    };
+
+    SupervisedDataset result =
+        prepareSupervisedDataset(dataset, "y", mapping);
+
+    // Проверяем количество признаков и объектов.
+    if (result.features.columns.size() != 2 ||
+        result.targets.size() != 3) {
+        return false;
+    }
+
+    // Проверяем, что целевой столбец исключён из признаков.
+    if (result.features.columns[0].name != "age" ||
+        result.features.columns[1].name != "job") {
+        return false;
+    }
+
+    // Проверяем правильность преобразования целевых значений.
+    const vector<double> expectedTargets = {
+        0.0, 1.0, 0.0
+    };
+
+    return result.targets == expectedTargets;
+}
+
+// Тест 11. Проверка отсутствующего целевого столбца
+bool testMissingTargetColumn() {
+    Dataset dataset;
+
+    Column age;
+    age.name = "age";
+    age.type = FeatureType::Numerical;
+    age.numericalValues = {25.0, 30.0};
+
+    dataset.columns = {age};
+
+    try {
+        prepareSupervisedDataset(dataset, "y");
+    } catch (const invalid_argument&) {
+        return true;
+    }
+
+    return false;
+}
+
+// Тест 12. Проверка пропущенных значений в целевом столбце
+bool testMissingTargetValues() {
+    Dataset dataset;
+
+    Column age;
+    age.name = "age";
+    age.type = FeatureType::Numerical;
+    age.numericalValues = {25.0, 30.0};
+
+    Column target;
+    target.name = "y";
+    target.type = FeatureType::Categorical;
+    target.categoricalValues = {
+        string("no"),
+        nullopt
+    };
+
+    dataset.columns = {age, target};
+
+    map<string, double> mapping = {
+        {"no", 0.0},
+        {"yes", 1.0}
+    };
+
+    try {
+        prepareSupervisedDataset(dataset, "y", mapping);
+    } catch (const invalid_argument&) {
+        return true;
+    }
+
+    return false;
+}
+
+// Тест 13. Проверка неизвестной категории
+bool testUnknownTargetCategory() {
+    Dataset dataset;
+
+    Column age;
+    age.name = "age";
+    age.type = FeatureType::Numerical;
+    age.numericalValues = {25.0, 30.0};
+
+    Column target;
+    target.name = "y";
+    target.type = FeatureType::Categorical;
+    target.categoricalValues = {
+        string("no"),
+        string("yes")
+    };
+
+    dataset.columns = {age, target};
+
+    // Намеренно не добавляем категорию "yes".
+    map<string, double> mapping = {
+        {"no", 0.0}
+    };
+
+    try {
+        prepareSupervisedDataset(dataset, "y", mapping);
+    } catch (const invalid_argument&) {
+        return true;
+    }
+
+    return false;
+}
+
+// Тест 14. Проверка отсутствия признаков
+bool testNoFeatures() {
+    Dataset dataset;
+
+    // В наборе данных присутствует только целевой столбец.
+    Column target;
+    target.name = "y";
+    target.type = FeatureType::Numerical;
+    target.numericalValues = {0.0, 1.0};
+
+    dataset.columns = {target};
+
+    try {
+        prepareSupervisedDataset(dataset, "y");
+    } catch (const invalid_argument&) {
+        return true;
+    }
+
+    return false;
+}
+
+
+// Тест 15. Проверка размеров обучающей и тестовой выборок
+bool testDatasetSplitSizes() {
+    Dataset dataset;
+
+    Column age;
+    age.name = "age";
+    age.type = FeatureType::Numerical;
+
+    Column target;
+    target.name = "y";
+    target.type = FeatureType::Numerical;
+
+    for (int i = 0; i < 100; ++i) {
+        age.numericalValues.push_back(static_cast<double>(i));
+        target.numericalValues.push_back(static_cast<double>(i % 2));
+    }
+
+    dataset.columns = {age, target};
+
+    SupervisedDataset supervised =
+        prepareSupervisedDataset(dataset, "y");
+
+    DatasetSplit split = splitDataset(supervised, 0.2, 42);
+
+    return split.train.targets.size() == 80 &&
+           split.test.targets.size() == 20;
+}
+
+// Тест 16. Проверка воспроизводимости разделения
+bool testDatasetSplitReproducibility() {
+    Dataset dataset;
+
+    Column age;
+    age.name = "age";
+    age.type = FeatureType::Numerical;
+
+    Column target;
+    target.name = "y";
+    target.type = FeatureType::Numerical;
+
+    for (int i = 0; i < 100; ++i) {
+        age.numericalValues.push_back(static_cast<double>(i));
+        target.numericalValues.push_back(static_cast<double>(i));
+    }
+
+    dataset.columns = {age, target};
+
+    SupervisedDataset supervised =
+        prepareSupervisedDataset(dataset, "y");
+
+    DatasetSplit first = splitDataset(supervised, 0.2, 42);
+    DatasetSplit second = splitDataset(supervised, 0.2, 42);
+
+    return first.train.targets == second.train.targets &&
+           first.test.targets == second.test.targets;
+}
+
+// Тест 17. Проверка некорректной доли тестовой выборки
+bool testInvalidTestRatio() {
+    SupervisedDataset dataset;
+
+    Column age;
+    age.name = "age";
+    age.type = FeatureType::Numerical;
+    age.numericalValues = {20.0, 30.0};
+
+    dataset.features.columns = {age};
+    dataset.targets = {0.0, 1.0};
+
+    try {
+        splitDataset(dataset, 1.0);
+    } catch (const invalid_argument&) {
+        return true;
+    }
+
+    return false;
+}
+
+
 int main() {
     if (!testCsvParsing()) {
         cerr << "Тест CSV не пройден\n";
@@ -321,6 +571,56 @@ int main() {
         return 1;
     }
     cout << "Тест Ordinal Encoding пройден\n";
+
+      if (!testSupervisedDataset()) {
+        cerr << "Тест выделения целевого столбца не пройден\n";
+        return 1;
+    }
+
+    cout << "Тест выделения целевого столбца пройден\n";
+
+    
+    if (!testMissingTargetColumn()) {
+        cerr << "Тест отсутствующего целевого столбца не пройден\n";
+        return 1;
+    }
+    cout << "Тест отсутствующего целевого столбца пройден\n";
+
+    if (!testMissingTargetValues()) {
+        cerr << "Тест пропущенных значений не пройден\n";
+        return 1;
+    }
+    cout << "Тест пропущенных значений пройден\n";
+
+    if (!testUnknownTargetCategory()) {
+        cerr << "Тест неизвестной категории не пройден\n";
+        return 1;
+    }
+    cout << "Тест неизвестной категории пройден\n";
+
+    if (!testNoFeatures()) {
+        cerr << "Тест отсутствия признаков не пройден\n";
+        return 1;
+    }
+    cout << "Тест отсутствия признаков пройден\n";
+
+        if (!testDatasetSplitSizes()) {
+        cerr << "Тест размеров выборок не пройден\n";
+        return 1;
+    }
+    cout << "Тест размеров выборок пройден\n";
+
+    if (!testDatasetSplitReproducibility()) {
+        cerr << "Тест воспроизводимости разделения не пройден\n";
+        return 1;
+    }
+    cout << "Тест воспроизводимости разделения пройден\n";
+
+    if (!testInvalidTestRatio()) {
+        cerr << "Тест некорректной доли выборки не пройден\n";
+        return 1;
+    }
+    cout << "Тест некорректной доли выборки пройден\n";
 
     cout << "\nВсе тесты пройдены\n";
     return 0;
