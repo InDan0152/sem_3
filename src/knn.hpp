@@ -5,12 +5,10 @@
 #include "distance.hpp"
 #include "neighbor_search.hpp"
 
-
 #include <cstddef>
 #include <memory>
 #include <span>
 #include <vector>
-#include <map>
 
 // Способ взвешивания соседей.
 enum class Weighting {
@@ -38,13 +36,22 @@ public:
         Weighting weightingMethod
     );
 
-    void fit(const Matrix& features,std::span<const double> target);
+    void fit(
+        const Matrix& features,
+        std::span<const double> target
+    );
 
-    std::vector<Neighbor> findNeighbors(std::span<const double> query) const;
+    std::vector<Neighbor> findNeighbors(
+        std::span<const double> query
+    ) const;
 
-    std::vector<double> getWeights(const std::vector<Neighbor>& neighbors) const;
+    std::vector<double> getWeights(
+        const std::vector<Neighbor>& neighbors
+    ) const;
 
     double getTarget(std::size_t index) const;
+
+    std::span<const double> targets() const;
 
     std::size_t featureCount() const;
 
@@ -52,7 +59,7 @@ public:
 };
 
 // kNN для задачи регрессии.
-class KnnRegressor : public IModel {
+class KnnRegressor : public IRegressor {
 private:
     KnnSearch search;
 
@@ -74,9 +81,10 @@ public:
 };
 
 // kNN для задачи классификации.
-class KnnClassifier : public IModel {
+class KnnClassifier : public IClassifier {
 private:
     KnnSearch search;
+    std::vector<double> classLabels;
 
 public:
     KnnClassifier(
@@ -93,4 +101,10 @@ public:
     std::vector<double> predict(
         const Matrix& features
     ) const override;
+
+    Matrix predict_proba(
+        const Matrix& features
+    ) const override;
+
+    std::span<const double> classes() const override;
 };

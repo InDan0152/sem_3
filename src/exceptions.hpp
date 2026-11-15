@@ -32,3 +32,10 @@ public:
     explicit InvalidParameterError(const string& message)
         : invalid_argument(message) {}
 };
+
+// Ошибка попытки получить span из непрерывно не расположенных элементов.
+class NonContiguousSliceError : public logic_error {
+public:
+    explicit NonContiguousSliceError(const string& message)
+        : logic_error(message) {}
+};

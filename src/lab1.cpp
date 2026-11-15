@@ -18,6 +18,9 @@
 #include "matrix.hpp"
 #include "distance.hpp"
 #include "knn.hpp"
+#include "nadaraya_watson.hpp"
+#include "cart.hpp"
+#include "model.hpp"
 
 using namespace std;
 
@@ -89,6 +92,497 @@ unique_ptr<IDistance> createDistance(const string& value) {
         "Неизвестная метрика расстояния: " + value
     );
 }
+
+void printCartSummary(
+    const CartTreeSummary& summary,
+    const vector<string>& featureNames
+) {
+    cout << "\nСтруктура дерева CART:\n"
+         << "Узлов: " << summary.nodeCount << '\n'
+         << "Листьев: " << summary.leafCount << '\n'
+         << "Фактическая глубина: " << summary.depth << '\n';
+
+    const size_t displayedSplits = min(size_t{5}, summary.splits.size());
+    cout << "Разбиения (первые " << displayedSplits << "):\n";
+
+    for (size_t i = 0; i < displayedSplits; ++i) {
+        const CartSplitDescription& split = summary.splits[i];
+        const string featureName = split.featureIndex < featureNames.size()
+            ? featureNames[split.featureIndex]
+            : "feature_" + to_string(split.featureIndex);
+
+        cout << "  depth " << split.depth << ": "
+             << featureName << " <= "
+             << setprecision(8) << split.threshold << '\n';
+    }
+}
+
+
+// Универсальный запуск моделей машинного обучения.
+int runMachineLearning(
+    const Dataset& dataset,
+    const string& targetName,
+    const PreprocessingConfig& preprocessingConfig,
+    const string& modelName,
+    const string& task,
+    size_t k,
+    double bandwidth,
+    const string& metricName,
+    const string& weightingName,
+    size_t maxDepth,
+    size_t minSamplesSplit,
+    size_t minSamplesLeaf
+) {
+    // Подготовка целевого признака.
+    SupervisedDataset supervisedDataset;
+    map<double, string> classDisplayNames;
+
+    if (task == "classification") {
+        const map<string, double> targetMapping = {
+            {"no", 0.0},
+            {"yes", 1.0}
+        };
+
+        for (const auto& [name, value] : targetMapping) {
+            classDisplayNames.emplace(value, name);
+        }
+
+        supervisedDataset = prepareSupervisedDataset(
+            dataset,
+            targetName,
+            targetMapping
+        );
+    }
+    else if (task == "regression") {
+        supervisedDataset = prepareSupervisedDataset(
+            dataset,
+            targetName
+        );
+    }
+    else {
+        throw invalid_argument(
+            "Неизвестная задача: " + task
+        );
+    }
+
+    // Разделение данных.
+    DatasetSplit split = splitDataset(
+        supervisedDataset,
+        0.2,
+        42
+    );
+
+    cout << "\nОбучающих объектов: "
+         << split.train.targets.size() << '\n';
+
+    cout << "Тестовых объектов: "
+         << split.test.targets.size() << '\n';
+
+    // Предобработка обучающей и тестовой выборок.
+    DatasetPreprocessor preprocessor(preprocessingConfig);
+
+    preprocessor.fit(split.train.features);
+
+    ProcessedDataset trainProcessed =
+        preprocessor.transform(split.train.features);
+
+    ProcessedDataset testProcessed =
+        preprocessor.transform(split.test.features);
+
+    Matrix trainMatrix(trainProcessed.data);
+    Matrix testMatrix(testProcessed.data);
+
+    cout << "\nПредобработка завершена.\n";
+    cout << "Количество признаков: "
+         << trainMatrix.columns() << '\n';
+
+    cout << "\nАлгоритм: " << modelName << '\n';
+    cout << "Задача: "
+         << (task == "classification" ? "классификация" : "регрессия")
+         << '\n';
+
+    // ========================================================
+    // КЛАССИФИКАЦИЯ
+    // ========================================================
+
+    if (task == "classification") {
+        unique_ptr<IClassifier> model;
+
+        if (modelName == "knn") {
+            Weighting weighting;
+
+            if (weightingName == "uniform") {
+                weighting = Weighting::Uniform;
+            }
+            else if (weightingName == "distance") {
+                weighting = Weighting::Distance;
+            }
+            else {
+                throw invalid_argument(
+                    "Неизвестный способ взвешивания: " + weightingName
+                );
+            }
+
+            model = make_unique<KnnClassifier>(
+                k,
+                createDistance(metricName),
+                weighting
+            );
+
+            cout << "Количество соседей: " << k << '\n';
+            cout << "Метрика: " << metricName << '\n';
+            cout << "Взвешивание: " << weightingName << '\n';
+        }
+        else if (modelName == "nw") {
+            model = make_unique<NadarayaWatsonClassifier>(
+                bandwidth,
+                createDistance(metricName)
+            );
+
+            cout << "Ширина окна h: " << bandwidth << '\n';
+            cout << "Метрика: " << metricName << '\n';
+        }
+        else if (modelName == "cart") {
+            model = make_unique<CartClassifier>(
+                maxDepth,
+                minSamplesSplit,
+                minSamplesLeaf
+            );
+
+            cout << "Максимальная глубина: " << maxDepth << '\n';
+            cout << "Минимум для разбиения: "
+                 << minSamplesSplit << '\n';
+            cout << "Минимум в листе: "
+                 << minSamplesLeaf << '\n';
+        }
+        else {
+            throw invalid_argument(
+                "Неизвестная модель: " + modelName
+            );
+        }
+
+        model->fit(
+            trainMatrix,
+            span<const double>(split.train.targets)
+        );
+
+        if (modelName == "cart") {
+            printCartSummary(
+                static_cast<CartClassifier*>(model.get())->summary(),
+                trainProcessed.featureNames
+            );
+        }
+
+        cout << "\nМодель обучена.\n";
+
+        vector<double> predictions = model->predict(testMatrix);
+        Matrix probabilities = model->predict_proba(testMatrix);
+        span<const double> classes = model->classes();
+
+         const size_t classCount = classes.size();
+
+        vector<vector<size_t>> confusion(
+            classCount,
+            vector<size_t>(classCount, 0)
+        );
+
+        size_t correctPredictions = 0;
+
+        for (size_t i = 0; i < predictions.size(); ++i) {
+            auto actualIt = find(
+                classes.begin(),
+                classes.end(),
+                split.test.targets[i]
+            );
+
+            auto predictedIt = find(
+                classes.begin(),
+                classes.end(),
+                predictions[i]
+            );
+
+            if (actualIt == classes.end() ||
+                predictedIt == classes.end()) {
+                throw runtime_error(
+                    "Обнаружен неизвестный класс в предсказаниях"
+                );
+            }
+
+            size_t actualIndex =
+                static_cast<size_t>(actualIt - classes.begin());
+
+            size_t predictedIndex =
+                static_cast<size_t>(predictedIt - classes.begin());
+
+            ++confusion[actualIndex][predictedIndex];
+
+            if (actualIndex == predictedIndex) {
+                ++correctPredictions;
+            }
+        }
+
+        // Accuracy.
+        double accuracy =
+            static_cast<double>(correctPredictions) /
+            static_cast<double>(predictions.size());
+
+        // Macro Precision, Recall и F1.
+        double precisionSum = 0.0;
+        double recallSum = 0.0;
+        double f1Sum = 0.0;
+
+        for (size_t c = 0; c < classCount; ++c) {
+            size_t truePositive = confusion[c][c];
+
+            size_t falsePositive = 0;
+            size_t falseNegative = 0;
+
+            for (size_t j = 0; j < classCount; ++j) {
+                if (j != c) {
+                    falsePositive += confusion[j][c];
+                    falseNegative += confusion[c][j];
+                }
+            }
+
+            double precision = 0.0;
+            double recall = 0.0;
+            double f1 = 0.0;
+
+            size_t predictedCount =
+                truePositive + falsePositive;
+
+            size_t actualCount =
+                truePositive + falseNegative;
+
+            if (predictedCount > 0) {
+                precision =
+                    static_cast<double>(truePositive) /
+                    static_cast<double>(predictedCount);
+            }
+
+            if (actualCount > 0) {
+                recall =
+                    static_cast<double>(truePositive) /
+                    static_cast<double>(actualCount);
+            }
+
+            if (precision + recall > 0.0) {
+                f1 = 2.0 * precision * recall /
+                     (precision + recall);
+            }
+
+            precisionSum += precision;
+            recallSum += recall;
+            f1Sum += f1;
+        }
+
+        double macroPrecision =
+            precisionSum / static_cast<double>(classCount);
+
+        double macroRecall =
+            recallSum / static_cast<double>(classCount);
+
+        double macroF1 =
+            f1Sum / static_cast<double>(classCount);
+
+        cout << fixed << setprecision(4);
+
+        cout << "\nМетрики классификации:\n";
+        cout << "Accuracy:  " << accuracy << '\n';
+        cout << "Precision: " << macroPrecision << '\n';
+        cout << "Recall:    " << macroRecall << '\n';
+        cout << "F1-score:  " << macroF1 << '\n';
+
+        cout << "\nМатрица ошибок:\n";
+
+        cout << "Реальный / Предсказанный";
+
+        for (double label : classes) {
+            const auto name = classDisplayNames.find(label);
+            cout << "\t" << (name == classDisplayNames.end()
+                ? to_string(label)
+                : name->second);
+        }
+
+        cout << '\n';
+
+        for (size_t i = 0; i < classCount; ++i) {
+            const auto name = classDisplayNames.find(classes[i]);
+            cout << (name == classDisplayNames.end()
+                ? to_string(classes[i])
+                : name->second);
+
+            for (size_t j = 0; j < classCount; ++j) {
+                cout << "\t" << confusion[i][j];
+            }
+
+            cout << '\n';
+        }
+
+        const size_t outputCount = min(
+            size_t{10},
+            predictions.size()
+        );
+
+        cout << "\nРезультаты классификации:\n";
+        cout << fixed << setprecision(3);
+
+        for (size_t i = 0; i < outputCount; ++i) {
+            cout << "\nОбъект " << i + 1 << '\n';
+            const auto actualName =
+                classDisplayNames.find(split.test.targets[i]);
+            const auto predictedName =
+                classDisplayNames.find(predictions[i]);
+            cout << "Реальный класс: "
+                 << (actualName == classDisplayNames.end()
+                     ? to_string(split.test.targets[i])
+                     : actualName->second)
+                 << '\n';
+            cout << "Предсказанный класс: "
+                 << (predictedName == classDisplayNames.end()
+                     ? to_string(predictions[i])
+                     : predictedName->second)
+                 << '\n';
+
+            cout << "Вероятности:\n";
+
+            for (size_t j = 0; j < classes.size(); ++j) {
+                const auto name = classDisplayNames.find(classes[j]);
+                cout << "  Класс "
+                     << (name == classDisplayNames.end()
+                         ? to_string(classes[j])
+                         : name->second)
+                     << ": "
+                     << probabilities(i, j) * 100.0 << "%\n";
+            }
+        }
+
+        return 0;
+    }
+
+    // ========================================================
+    // РЕГРЕССИЯ
+    // ========================================================
+
+    unique_ptr<IRegressor> model;
+
+    if (modelName == "knn") {
+        Weighting weighting;
+
+        if (weightingName == "uniform") {
+            weighting = Weighting::Uniform;
+        }
+        else if (weightingName == "distance") {
+            weighting = Weighting::Distance;
+        }
+        else {
+            throw invalid_argument(
+                "Неизвестный способ взвешивания: " + weightingName
+            );
+        }
+
+        model = make_unique<KnnRegressor>(
+            k,
+            createDistance(metricName),
+            weighting
+        );
+
+        cout << "Количество соседей: " << k << '\n';
+        cout << "Метрика: " << metricName << '\n';
+        cout << "Взвешивание: " << weightingName << '\n';
+    }
+    else if (modelName == "nw") {
+        model = make_unique<NadarayaWatsonRegressor>(
+            bandwidth,
+            createDistance(metricName)
+        );
+
+        cout << "Ширина окна h: " << bandwidth << '\n';
+        cout << "Метрика: " << metricName << '\n';
+    }
+    else if (modelName == "cart") {
+        model = make_unique<CartRegressor>(
+            maxDepth,
+            minSamplesSplit,
+            minSamplesLeaf
+        );
+
+        cout << "Максимальная глубина: " << maxDepth << '\n';
+        cout << "Минимум для разбиения: "
+             << minSamplesSplit << '\n';
+        cout << "Минимум в листе: "
+             << minSamplesLeaf << '\n';
+    }
+    else {
+        throw invalid_argument(
+            "Неизвестная модель: " + modelName
+        );
+    }
+
+    model->fit(
+        trainMatrix,
+        span<const double>(split.train.targets)
+    );
+
+    if (modelName == "cart") {
+        printCartSummary(
+            static_cast<CartRegressor*>(model.get())->summary(),
+            trainProcessed.featureNames
+        );
+    }
+
+    cout << "\nМодель обучена.\n";
+
+    vector<double> predictions = model->predict(testMatrix);
+
+    if (predictions.empty()) {
+        throw runtime_error(
+            "Тестовая выборка пуста"
+        );
+    }
+
+    // Рассчитываем MAE и RMSE.
+    double absoluteErrorSum = 0.0;
+    double squaredErrorSum = 0.0;
+
+    for (size_t i = 0; i < predictions.size(); ++i) {
+        double error =
+            predictions[i] - split.test.targets[i];
+
+        absoluteErrorSum += abs(error);
+        squaredErrorSum += error * error;
+    }
+
+    double mae =
+        absoluteErrorSum / predictions.size();
+
+    double rmse =
+        sqrt(squaredErrorSum / predictions.size());
+
+    cout << fixed << setprecision(3);
+
+    cout << "\nОценка качества регрессии:\n";
+    cout << "MAE:  " << mae << '\n';
+    cout << "RMSE: " << rmse << '\n';
+
+    const size_t outputCount = min(
+        size_t{10},
+        predictions.size()
+    );
+
+    cout << "\nРезультаты регрессии:\n";
+    cout << "№ | Реальное значение | Прогноз\n";
+    cout << "--------------------------------\n";
+
+    for (size_t i = 0; i < outputCount; ++i) {
+        cout << i + 1 << " | "
+             << split.test.targets[i] << " | "
+             << predictions[i] << '\n';
+    }
+
+    return 0;
+}
+
 
 // Запуск kNN-классификации.
 int runKnnClassification(
@@ -377,7 +871,20 @@ options.add_options()
     ("weighting", "Способ взвешивания: uniform, distance",
         cxxopts::value<string>()->default_value("uniform"))
     ("regression", "Запустить режим kNN-регрессии",
-        cxxopts::value<bool>()->default_value("false"));
+        cxxopts::value<bool>()->default_value("false"))
+    ("model", "Модель: knn, nw, cart",
+        cxxopts::value<string>()->default_value(""))
+    ("task", "Задача: classification или regression",
+        cxxopts::value<string>()->default_value("classification"))
+    ("bandwidth", "Ширина окна Nadaraya-Watson",
+        cxxopts::value<double>()->default_value("1.0"))
+    ("max-depth", "Максимальная глубина CART",
+        cxxopts::value<size_t>()->default_value("5"))
+    ("min-samples-split", "Минимум объектов для разбиения CART",
+        cxxopts::value<size_t>()->default_value("2"))
+    ("min-samples-leaf", "Минимум объектов в листе CART",
+        cxxopts::value<size_t>()->default_value("1"));
+
 
 cxxopts::ParseResult arguments;
 
@@ -454,6 +961,28 @@ size_t binCount = static_cast<size_t>(binsValue);
     if (!loadCsv(filename, dataset, config)) {
         return 1;
     }
+
+
+    const string modelName =
+        arguments["model"].as<string>();
+
+    if (!modelName.empty()) {
+        return runMachineLearning(
+            dataset,
+            arguments["target"].as<string>(),
+            preprocessingConfig,
+            modelName,
+            arguments["task"].as<string>(),
+            arguments["neighbors"].as<size_t>(),
+            arguments["bandwidth"].as<double>(),
+            arguments["metric"].as<string>(),
+            arguments["weighting"].as<string>(),
+            arguments["max-depth"].as<size_t>(),
+            arguments["min-samples-split"].as<size_t>(),
+            arguments["min-samples-leaf"].as<size_t>()
+        );
+    }
+
 
     const bool runClassification = arguments["knn"].as<bool>();
 const bool runRegression = arguments["regression"].as<bool>();

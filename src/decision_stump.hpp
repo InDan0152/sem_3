@@ -1,18 +1,14 @@
+
 #pragma once
 
 #include "model.hpp"
+#include "split_finder.hpp"
 
 #include <cstddef>
 #include <span>
 #include <vector>
 
 using namespace std;
-
-// Критерий выбора разбиения.
-enum class SplitCriterion {
-    Variance, // Для регрессии
-    Gini      // Для классификации
-};
 
 // Решающий пень — дерево решений глубины 1.
 class DecisionStump : public IModel {
@@ -21,6 +17,7 @@ private:
     size_t minSamplesLeaf;
 
     bool fitted = false;
+    bool hasSplit = false;
 
     size_t featureCount = 0;
     size_t bestFeature = 0;
@@ -29,8 +26,6 @@ private:
     double leftPrediction = 0.0;
     double rightPrediction = 0.0;
     double constantPrediction = 0.0;
-
-    bool hasSplit = false;
 
 public:
     DecisionStump(
@@ -48,5 +43,6 @@ public:
     ) const override;
 
     size_t split_feature() const;
+
     double split_threshold() const;
 };

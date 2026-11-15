@@ -73,6 +73,9 @@ add_library(lab1_core
     src/neighbor_search.cpp
     src/knn.cpp
     src/decision_stump.cpp
+    src/nadaraya_watson.cpp
+    src/split_finder.cpp
+    src/cart.cpp
 )
 
 target_include_directories(
@@ -98,35 +101,85 @@ include(CTest)
 
 if(BUILD_TESTING)
 
-    # Тесты лабораторной работы №1
-    add_executable(lab1_tests src/lab1_tests.cpp)
+ # Тесты ЛР1
+add_executable(lab1_tests
+    test/lab1_tests.cpp
+)
 
-    target_link_libraries(
-        lab1_tests
-        PRIVATE
-        lab1_core
-    )
+target_link_libraries(lab1_tests
+    PRIVATE lab1_core
+)
 
-    add_test(
-        NAME lab1_tests
-        COMMAND lab1_tests
-    )
+add_test(
+    NAME lab1_tests
+    COMMAND lab1_tests
+)
 
-    # Тесты решающего пня
-    add_executable(
-        decision_stump_tests
-        src/decision_stump_tests.cpp
-    )
+# Тесты DecisionStump
+add_executable(decision_stump_tests
+    test/decision_stump_tests.cpp
+)
 
-    target_link_libraries(
-        decision_stump_tests
-        PRIVATE
-        lab1_core
-    )
+target_link_libraries(decision_stump_tests
+    PRIVATE lab1_core
+)
 
-    add_test(
-        NAME decision_stump_tests
-        COMMAND decision_stump_tests
-    )
+add_test(
+    NAME decision_stump_tests
+    COMMAND decision_stump_tests
+)
 
+# Тесты MatrixSlice
+add_executable(matrix_slice_tests
+    test/matrix_slice_tests.cpp
+)
+
+target_link_libraries(matrix_slice_tests
+    PRIVATE lab1_core
+)
+
+add_test(
+    NAME matrix_slice_tests
+    COMMAND matrix_slice_tests
+)
+
+add_executable(nadaraya_watson_tests
+    test/nadaraya_watson_tests.cpp
+)
+
+target_link_libraries(nadaraya_watson_tests
+    PRIVATE lab1_core
+)
+
+add_test(
+    NAME nadaraya_watson_tests
+    COMMAND nadaraya_watson_tests
+)
+
+add_executable(cart_tests
+    test/cart_tests.cpp
+)
+
+target_link_libraries(cart_tests
+    PRIVATE lab1_core
+)
+
+add_test(
+    NAME cart_tests
+    COMMAND cart_tests
+)
+
+add_executable(cart_audit_tests
+    test/cart_audit_tests.cpp
+)
+
+target_link_libraries(
+    cart_audit_tests
+    PRIVATE lab1_core
+)
+
+add_test(
+    NAME cart_audit_tests
+    COMMAND cart_audit_tests
+)
 endif()

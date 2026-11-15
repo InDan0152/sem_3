@@ -4,8 +4,22 @@
 
 #include <map>
 #include <utility>
+#include <algorithm>
 
 using namespace std;
+
+// Преобразование строки матрицы в непрерывный вектор.
+static vector<double> getMatrixRow(const Matrix& matrix, size_t rowIndex) {
+    auto row = matrix(rowIndex, nullopt);
+
+    vector<double> result(row.size());
+
+    for (size_t i = 0; i < row.size(); ++i) {
+        result[i] = row(i);
+    }
+
+    return result;
+}
 
 // Конструктор общей части kNN.
 KnnSearch::KnnSearch(
@@ -146,6 +160,15 @@ double KnnSearch::getTarget(size_t index) const
     return trainTargets.at(index);
 }
 
+// Получение всех целевых значений обучающей выборки.
+span<const double> KnnSearch::targets() const {
+    if (!fitted) {
+        throw ModelUsageError("Модель ещё не обучена");
+    }
+
+    return trainTargets;
+}
+
 // Получение количества признаков.
 size_t KnnSearch::featureCount() const
 {
@@ -178,9 +201,42 @@ KnnRegressor::KnnRegressor(
 void KnnRegressor::fit(
     const Matrix& features,
     span<const double> target
-)
-{
+) {
     search.fit(features, target);
+}
+
+// Обучение классификатора.
+void KnnClassifier::fit(
+    const Matrix& features,
+    span<const double> target
+) {
+    if (features.rows() != target.size()) {
+        throw DimensionMismatchError(
+            "Количество объектов и целевых значений не совпадает"
+        );
+    }
+
+    if (target.empty()) {
+        throw InvalidParameterError(
+            "Нельзя обучить классификатор на пустой выборке"
+        );
+    }
+
+    // Формируем отсортированный список уникальных классов.
+    vector<double> newClasses(target.begin(), target.end());
+
+    sort(newClasses.begin(), newClasses.end());
+
+    newClasses.erase(
+        unique(newClasses.begin(), newClasses.end()),
+        newClasses.end()
+    );
+
+    // Обучаем общую часть kNN.
+    search.fit(features, target);
+
+    // Обновляем список классов.
+    classLabels = move(newClasses);
 }
 
 // Предсказание регрессора.
@@ -205,7 +261,7 @@ vector<double> KnnRegressor::predict(
 
     for (size_t i = 0; i < features.rows(); ++i) {
         vector<Neighbor> neighbors =
-            search.findNeighbors(features[i]);
+            search.findNeighbors(getMatrixRow(features, i));
 
         vector<double> weights =
             search.getWeights(neighbors);
@@ -242,15 +298,6 @@ KnnClassifier::KnnClassifier(
 {
 }
 
-// Обучение классификатора.
-void KnnClassifier::fit(
-    const Matrix& features,
-    span<const double> target
-)
-{
-    search.fit(features, target);
-}
-
 // Предсказание классификатора.
 vector<double> KnnClassifier::predict(
     const Matrix& features
@@ -273,8 +320,7 @@ vector<double> KnnClassifier::predict(
 
     for (size_t i = 0; i < features.rows(); ++i) {
         vector<Neighbor> neighbors =
-            search.findNeighbors(features[i]);
-
+            search.findNeighbors(getMatrixRow(features, i));
         vector<double> weights =
             search.getWeights(neighbors);
 
@@ -304,4 +350,78 @@ vector<double> KnnClassifier::predict(
     }
 
     return predictions;
+}
+
+// Получение списка классов.
+span<const double> KnnClassifier::classes() const {
+    if (!search.isFitted()) {
+        throw ModelUsageError(
+            "Классификатор ещё не обучен"
+        );
+    }
+
+    return classLabels;
+}
+
+// Получение вероятностей принадлежности объектов к классам.
+Matrix KnnClassifier::predict_proba(
+    const Matrix& features
+) const {
+    if (!search.isFitted()) {
+        throw ModelUsageError(
+            "Классификатор ещё не обучен"
+        );
+    }
+
+    if (features.columns() != search.featureCount()) {
+        throw DimensionMismatchError(
+            "Количество признаков тестовой выборки не совпадает с обучающей"
+        );
+    }
+
+    Matrix probabilities(features.rows(), classLabels.size());
+
+    for (size_t i = 0; i < features.rows(); ++i) {
+        vector<Neighbor> neighbors =
+            search.findNeighbors(getMatrixRow(features, i));
+
+        vector<double> weights =
+            search.getWeights(neighbors);
+
+        double weightSum = 0.0;
+
+        for (size_t j = 0; j < neighbors.size(); ++j) {
+            double target = search.getTarget(neighbors[j].index);
+
+            auto it = lower_bound(
+                classLabels.begin(),
+                classLabels.end(),
+                target
+            );
+
+            if (it == classLabels.end() || *it != target) {
+                throw ModelUsageError(
+                    "Обнаружен неизвестный класс"
+                );
+            }
+
+            size_t classIndex =
+                static_cast<size_t>(it - classLabels.begin());
+
+            probabilities(i, classIndex) += weights[j];
+            weightSum += weights[j];
+        }
+
+        if (weightSum <= 0.0) {
+            throw ModelUsageError(
+                "Сумма весов соседей должна быть положительной"
+            );
+        }
+
+        for (size_t j = 0; j < classLabels.size(); ++j) {
+            probabilities(i, j) /= weightSum;
+        }
+    }
+
+    return probabilities;
 }
