@@ -197,6 +197,8 @@ void DecisionStump::fit(
     fitted = true;
 }
 
+// todo: рассказать, как работает пень решений (какие решения для оптимальности алгоритма там применяются)
+
 // Предсказание
 vector<double> DecisionStump::predict(
     const Matrix& features
