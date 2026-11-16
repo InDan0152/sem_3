@@ -9,16 +9,12 @@
 
 using namespace std;
 
-// Добавляет выбранный объект в соответствующую выборку.
-static void addRow(
-    const SupervisedDataset& source,
-    SupervisedDataset& destination,
-    size_t rowIndex
-) {
-    // Копируем целевое значение.
+
+static void addRow(const SupervisedDataset& source,SupervisedDataset& destination,size_t rowIndex) {
+
     destination.targets.push_back(source.targets[rowIndex]);
 
-    // Копируем значения каждого признака.
+//копи значения каждого признака
     for (size_t i = 0; i < source.features.columns.size(); ++i) {
         const Column& sourceColumn = source.features.columns[i];
 
@@ -39,21 +35,18 @@ DatasetSplit splitDataset(
     double testRatio,
     uint32_t seed
 ) {
-    // Проверяем корректность доли тестовой выборки.
     if (testRatio <= 0.0 || testRatio >= 1.0) {
         throw invalid_argument(
             "Доля тестовой выборки должна быть больше 0 и меньше 1"
         );
     }
 
-    // Проверяем наличие признаков.
     if (dataset.features.columns.empty()) {
         throw invalid_argument(
             "Набор данных не содержит признаков"
         );
     }
 
-    // Проверяем наличие целевых значений.
     if (dataset.targets.empty()) {
         throw invalid_argument(
             "Набор данных не содержит целевых значений"
@@ -62,14 +55,13 @@ DatasetSplit splitDataset(
 
     const size_t rowCount = dataset.targets.size();
 
-    // Для разделения необходимы хотя бы два объекта.
     if (rowCount < 2) {
         throw invalid_argument(
             "Для разделения необходимо минимум два объекта"
         );
     }
 
-    // Проверяем соответствие размеров всех столбцов.
+//соосветствие размеров столбцов 
     for (const Column& column : dataset.features.columns) {
         size_t columnSize =
             column.type == FeatureType::Numerical
@@ -84,26 +76,19 @@ DatasetSplit splitDataset(
         }
     }
 
-    // Определяем количество объектов для тестовой выборки.
-    size_t testSize = static_cast<size_t>(
-        round(static_cast<double>(rowCount) * testRatio)
-    );
+    size_t testSize = static_cast<size_t>(round(static_cast<double>(rowCount) * testRatio));
 
-    // В обеих выборках должен остаться хотя бы один объект.
     testSize = max<size_t>(1, testSize);
     testSize = min(testSize, rowCount - 1);
 
-    // Создаём индексы всех объектов.
     vector<size_t> indices(rowCount);
     iota(indices.begin(), indices.end(), 0);
 
-    // Перемешиваем индексы с помощью генератора случайных чисел.
     mt19937 generator(seed);
     shuffle(indices.begin(), indices.end(), generator);
 
     DatasetSplit result;
 
-    // Копируем структуру столбцов без значений.
     for (const Column& column : dataset.features.columns) {
         Column trainColumn;
         trainColumn.name = column.name;
@@ -117,7 +102,7 @@ DatasetSplit splitDataset(
         result.test.features.columns.push_back(testColumn);
     }
 
-    // Распределяем объекты по обучающей и тестовой выборкам.
+//распределяем объекты по обучающей и тестовой выборкам
     for (size_t i = 0; i < rowCount; ++i) {
         size_t rowIndex = indices[i];
 

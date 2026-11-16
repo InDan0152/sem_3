@@ -136,7 +136,7 @@ void DecisionStump::fit(
     bestThreshold = bestSplit->threshold;
     hasSplit = true;
 
-    // Вычисляем предсказания левого и правого листьев.
+// Вычисляем предсказания левого и правого листьев.
     long double leftSum = 0.0L;
     long double rightSum = 0.0L;
 
@@ -197,7 +197,7 @@ void DecisionStump::fit(
     fitted = true;
 }
 
-// Предсказание.
+// Предсказание
 vector<double> DecisionStump::predict(
     const Matrix& features
 ) const {
@@ -238,7 +238,6 @@ vector<double> DecisionStump::predict(
     return predictions;
 }
 
-// Получение индекса признака разбиения.
 size_t DecisionStump::split_feature() const {
     if (!fitted || !hasSplit) {
         throw ModelUsageError(
@@ -249,7 +248,6 @@ size_t DecisionStump::split_feature() const {
     return bestFeature;
 }
 
-// Получение порога разбиения.
 double DecisionStump::split_threshold() const {
     if (!fitted || !hasSplit) {
         throw ModelUsageError(

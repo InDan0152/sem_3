@@ -11,18 +11,13 @@
 
 using namespace std;
 
-// Узел дерева CART.
+// Узел CART
 struct CartNode {
     bool isLeaf = true;
-
-    // Параметры разбиения.
     size_t featureIndex = 0;
     double threshold = 0.0;
-
-    // Предсказание для регрессии.
     double prediction = 0.0;
 
-    // Вероятности классов для классификации.
     vector<double> classProbabilities;
 
     unique_ptr<CartNode> left;
@@ -42,7 +37,6 @@ struct CartTreeSummary {
     vector<CartSplitDescription> splits;
 };
 
-// Дерево CART для регрессии.
 class CartRegressor : public IRegressor {
 private:
     unique_ptr<CartNode> root;
@@ -81,7 +75,6 @@ public:
     CartTreeSummary summary() const;
 };
 
-// Дерево CART для классификации.
 class CartClassifier : public IClassifier {
 private:
     unique_ptr<CartNode> root;

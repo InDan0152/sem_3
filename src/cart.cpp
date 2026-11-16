@@ -53,16 +53,10 @@ CartTreeSummary summarizeTree(const CartNode* root) {
 
 } // namespace
 
-// ============================================================
 // CART REGRESSOR
-// ============================================================
 
 // Конструктор регрессионного дерева.
-CartRegressor::CartRegressor(
-    size_t max_depth,
-    size_t min_samples_split,
-    size_t min_samples_leaf
-)
+CartRegressor::CartRegressor(size_t max_depth,size_t min_samples_split,size_t min_samples_leaf)
     : maxDepth(max_depth),
       minSamplesSplit(min_samples_split),
       minSamplesLeaf(min_samples_leaf)
@@ -87,16 +81,11 @@ CartRegressor::CartRegressor(
 }
 
 // Рекурсивное построение узла регрессионного дерева.
-unique_ptr<CartNode> CartRegressor::buildNode(
-    const Matrix& features,
-    span<const double> target,
-    const vector<size_t>& objectIds,
-    const vector<size_t>& featureIds,
-    size_t depth
-) {
+unique_ptr<CartNode> CartRegressor::buildNode( const Matrix& features, span<const double> target,
+    const vector<size_t>& objectIds, const vector<size_t>& featureIds, size_t depth) {
     auto node = make_unique<CartNode>();
 
-    // Предсказание листа — среднее целевых значений.
+    // Предсказание листа
     long double sum = 0.0L;
 
     for (size_t id : objectIds) {
@@ -108,9 +97,7 @@ unique_ptr<CartNode> CartRegressor::buildNode(
     );
 
     if (!isfinite(node->prediction)) {
-        throw InvalidParameterError(
-            "Предсказание листа вышло за поддерживаемый численный диапазон"
-        );
+        throw InvalidParameterError("Предсказание листа вышло за поддерживаемый численный диапазон");
     }
 
     const double firstTarget = target[objectIds.front()];
@@ -131,7 +118,7 @@ unique_ptr<CartNode> CartRegressor::buildNode(
         return node;
     }
 
-    // Ищем лучшее разбиение.
+//ищем разбиение
     optional<Split> split = SplitFinder::findBestSplit(
         features,
         target,
@@ -141,11 +128,9 @@ unique_ptr<CartNode> CartRegressor::buildNode(
         minSamplesLeaf
     );
 
-    if (!split.has_value()) {
-        return node;
-    }
+    if (!split.has_value()) {return node;}
 
-    // Распределяем индексы объектов между потомками.
+//распределяем индексы между потоками 
     vector<size_t> leftIds;
     vector<size_t> rightIds;
 
@@ -161,40 +146,32 @@ unique_ptr<CartNode> CartRegressor::buildNode(
         }
     }
 
-    // Защита от некорректного разбиения.
-    if (leftIds.empty() || rightIds.empty()) {
-        return node;
-    }
+    if (leftIds.empty() || rightIds.empty()) {return node;}
 
     node->isLeaf = false;
     node->featureIndex = split->featureIndex;
     node->threshold = split->threshold;
 
-    // Рекурсивно строим дочерние узлы.
+//рекурсивно дочерние узлы 
     node->left = buildNode(
         features,
         target,
         leftIds,
         featureIds,
-        depth + 1
-    );
+        depth + 1);
 
     node->right = buildNode(
         features,
         target,
         rightIds,
         featureIds,
-        depth + 1
-    );
+        depth + 1);
 
     return node;
 }
 
 // Обучение регрессионного дерева.
-void CartRegressor::fit(
-    const Matrix& features,
-    span<const double> target
-) {
+void CartRegressor::fit(const Matrix& features, span<const double> target) {
     const size_t n = features.rows();
     const size_t d = features.columns();
 
@@ -219,16 +196,12 @@ void CartRegressor::fit(
     // Проверяем входные данные.
     for (size_t i = 0; i < n; ++i) {
         if (!isfinite(target[i])) {
-            throw InvalidParameterError(
-                "Целевые значения содержат некорректные значения"
-            );
+            throw InvalidParameterError("Целевые значения содержат некорректные значения");
         }
 
         for (size_t j = 0; j < d; ++j) {
             if (!isfinite(features(i, j))) {
-                throw InvalidParameterError(
-                    "Матрица признаков содержит некорректные значения"
-                );
+                throw InvalidParameterError("Матрица признаков содержит некорректные значения");
             }
         }
     }
@@ -239,21 +212,15 @@ void CartRegressor::fit(
     vector<size_t> featureIds(d);
     iota(featureIds.begin(), featureIds.end(), 0);
 
-    // Строим новое дерево.
-    unique_ptr<CartNode> newRoot = buildNode(
-        features,
-        target,
-        objectIds,
-        featureIds,
-        0
-    );
+//новое дерево
+    unique_ptr<CartNode> newRoot = buildNode(features,target,objectIds,featureIds,0);
 
     root = move(newRoot);
     featureCount = d;
     fitted = true;
 }
 
-// Предсказание регрессионного дерева.
+//предсказания регрес дерева
 vector<double> CartRegressor::predict(
     const Matrix& features
 ) const {
@@ -306,50 +273,33 @@ CartTreeSummary CartRegressor::summary() const {
     return summarizeTree(root.get());
 }
 
-// ============================================================
 // CART CLASSIFIER
-// ============================================================
 
-// Конструктор классификационного дерева.
-CartClassifier::CartClassifier(
-    size_t max_depth,
-    size_t min_samples_split,
-    size_t min_samples_leaf
-)
+CartClassifier::CartClassifier(size_t max_depth,size_t min_samples_split,size_t min_samples_leaf)
     : maxDepth(max_depth),
       minSamplesSplit(min_samples_split),
       minSamplesLeaf(min_samples_leaf)
 {
     if (maxDepth > maxDemonstrationDepth) {
-        throw InvalidParameterError(
-            "Максимальная глубина CART не должна превышать 64"
-        );
+        throw InvalidParameterError("Максимальная глубина CART не должна превышать 64");
     }
 
     if (minSamplesSplit < 2) {
-        throw InvalidParameterError(
-            "Минимальное количество объектов для разбиения должно быть не меньше двух"
-        );
+        throw InvalidParameterError("Минимальное количество объектов для разбиения должно быть не меньше двух");
     }
 
     if (minSamplesLeaf == 0) {
-        throw InvalidParameterError(
-            "Минимальное количество объектов в листе должно быть больше нуля"
-        );
+        throw InvalidParameterError("Минимальное количество объектов в листе должно быть больше нуля");
     }
 }
 
-// Рекурсивное построение узла классификационного дерева.
-unique_ptr<CartNode> CartClassifier::buildNode(
-    const Matrix& features,
-    span<const double> target,
-    const vector<size_t>& objectIds,
-    const vector<size_t>& featureIds,
-    size_t depth
-) {
+// рекурсивное построение узла классификационного дерева
+unique_ptr<CartNode> CartClassifier::buildNode(const Matrix& features,span<const double> target,
+    const vector<size_t>& objectIds,const vector<size_t>& featureIds,size_t depth) 
+    {
     auto node = make_unique<CartNode>();
 
-    // Вычисляем распределение классов в текущем узле.
+// вычисляем распределение классов в текущем узле
     node->classProbabilities.assign(classLabels.size(), 0.0);
 
     for (size_t id : objectIds) {
@@ -365,7 +315,7 @@ unique_ptr<CartNode> CartClassifier::buildNode(
         node->classProbabilities[classIndex] += 1.0;
     }
 
-    // Нормируем частоты классов.
+// нормируем частоты классов
     for (double& probability : node->classProbabilities) {
         probability /= static_cast<double>(objectIds.size());
     }
@@ -379,7 +329,7 @@ unique_ptr<CartNode> CartClassifier::buildNode(
         }
     );
 
-    // Условия остановки рекурсии.
+// условия остановки рекурсии
     if (identicalTargets ||
         depth >= maxDepth ||
         objectIds.size() < minSamplesSplit ||
@@ -387,20 +337,12 @@ unique_ptr<CartNode> CartClassifier::buildNode(
         featureIds.empty()) {
         return node;
     }
-
-    // Ищем лучшее разбиение по критерию Джини.
+// ищем лучшее разбиение по Джини
     optional<Split> split = SplitFinder::findBestSplit(
-        features,
-        target,
-        objectIds,
-        featureIds,
-        SplitCriterion::Gini,
-        minSamplesLeaf
-    );
+        features,target,objectIds,featureIds,
+        SplitCriterion::Gini,minSamplesLeaf);
 
-    if (!split.has_value()) {
-        return node;
-    }
+    if (!split.has_value()) {return node;}
 
     vector<size_t> leftIds;
     vector<size_t> rightIds;
@@ -425,31 +367,26 @@ unique_ptr<CartNode> CartClassifier::buildNode(
     node->featureIndex = split->featureIndex;
     node->threshold = split->threshold;
 
-    // Строим дочерние узлы.
+//    дочерние узлы
     node->left = buildNode(
         features,
         target,
         leftIds,
         featureIds,
-        depth + 1
-    );
+        depth + 1);
 
     node->right = buildNode(
         features,
         target,
         rightIds,
         featureIds,
-        depth + 1
-    );
+        depth + 1);
 
     return node;
 }
 
-// Обучение классификационного дерева.
-void CartClassifier::fit(
-    const Matrix& features,
-    span<const double> target
-) {
+//обучение классификационного дерева
+void CartClassifier::fit(const Matrix& features,span<const double> target) {
     const size_t n = features.rows();
     const size_t d = features.columns();
 
@@ -487,7 +424,6 @@ void CartClassifier::fit(
         }
     }
 
-    // Формируем отсортированный список уникальных классов.
     vector<double> newClasses(target.begin(), target.end());
 
     sort(newClasses.begin(), newClasses.end());
@@ -503,7 +439,7 @@ void CartClassifier::fit(
     vector<size_t> featureIds(d);
     iota(featureIds.begin(), featureIds.end(), 0);
 
-    // Сохраняем классы для построения узлов.
+// сейв классов для построения узлов
     vector<double> oldClasses = move(classLabels);
     classLabels = move(newClasses);
 
@@ -526,7 +462,7 @@ void CartClassifier::fit(
     }
 }
 
-// Получение вероятностей классов.
+//вероятности классов
 Matrix CartClassifier::predict_proba(
     const Matrix& features
 ) const {
@@ -577,7 +513,7 @@ Matrix CartClassifier::predict_proba(
     return probabilities;
 }
 
-// Предсказание класса.
+//предсказание класса
 vector<double> CartClassifier::predict(
     const Matrix& features
 ) const {
@@ -602,7 +538,7 @@ vector<double> CartClassifier::predict(
     return predictions;
 }
 
-// Получение списка классов.
+//получение списка классов
 span<const double> CartClassifier::classes() const {
     if (!fitted) {
         throw ModelUsageError(
