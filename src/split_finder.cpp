@@ -7,7 +7,6 @@
 #include <limits>
 #include <map>
 #include <numeric>
-#include <ranges>
 #include <vector>
 
 using namespace std;
@@ -17,27 +16,26 @@ namespace {
 struct SortedObject {
     size_t objectId;
     size_t classIndex;
+    size_t weight;
 };
 
-template <typename FeatureRange>
-optional<Split> findBestSplitImpl(
+void validateCriterion(SplitCriterion criterion) {
+    if (criterion != SplitCriterion::Variance &&
+        criterion != SplitCriterion::Gini) {
+        throw InvalidParameterError("Неизвестный критерий разбиения");
+    }
+}
+
+void validateInput(
     const Matrix& features,
     span<const double> target,
     const vector<size_t>& objectIds,
-    const FeatureRange& featureIds,
-    SplitCriterion criterion,
-    size_t minSamplesLeaf
+    size_t minSamplesLeaf,
+    span<const size_t> counts
 ) {
     if (minSamplesLeaf == 0) {
         throw InvalidParameterError(
             "Минимальное количество объектов в листе должно быть больше нуля"
-        );
-    }
-
-    if (criterion != SplitCriterion::Variance &&
-        criterion != SplitCriterion::Gini) {
-        throw InvalidParameterError(
-            "Неизвестный критерий разбиения"
         );
     }
 
@@ -47,8 +45,10 @@ optional<Split> findBestSplitImpl(
         );
     }
 
-    if (objectIds.size() < 2 || featureIds.begin() == featureIds.end()) {
-        return nullopt;
+    if (!counts.empty() && counts.size() != features.rows()) {
+        throw DimensionMismatchError(
+            "Количество кратностей не совпадает с числом строк матрицы"
+        );
     }
 
     for (size_t id : objectIds) {
@@ -63,70 +63,146 @@ optional<Split> findBestSplitImpl(
                 "Целевые значения содержат некорректные значения"
             );
         }
-    }
 
-    for (size_t feature : featureIds) {
-        if (feature >= features.columns()) {
+        if (!counts.empty() && counts[id] == 0) {
             throw InvalidParameterError(
-                "Индекс признака выходит за границы матрицы"
+                "Объект с нулевой кратностью не должен находиться в узле"
             );
         }
     }
+}
 
-    for (size_t id : objectIds) {
-        for (size_t feature : featureIds) {
-            if (!isfinite(features(id, feature))) {
-                throw InvalidParameterError(
-                    "Матрица содержит некорректные значения"
-                );
-            }
-        }
+size_t getWeight(
+    size_t objectId,
+    span<const size_t> counts
+) {
+    return counts.empty() ? 1 : counts[objectId];
+}
+
+FeatureSplitResult findForFeatureImpl(
+    const Matrix& features,
+    span<const double> target,
+    const vector<size_t>& objectIds,
+    size_t feature,
+    SplitCriterion criterion,
+    size_t minSamplesLeaf,
+    span<const size_t> counts
+) {
+    validateCriterion(criterion);
+    validateInput(
+        features, target, objectIds, minSamplesLeaf, counts
+    );
+
+    if (feature >= features.columns()) {
+        throw InvalidParameterError(
+            "Индекс признака выходит за границы матрицы"
+        );
     }
+
+    FeatureSplitResult result;
 
     const size_t n = objectIds.size();
 
-    if (minSamplesLeaf > n / 2) {
-        return nullopt;
+    if (n < 2 || minSamplesLeaf > n / 2) {
+        return result;
     }
 
-    // Кодируем классы только среди объектов текущего поиска.
     map<double, size_t> classIndices;
-    vector<size_t> totalClassCounts;
-
-    size_t classCount = 0;
+    vector<long double> totalClassCounts;
 
     if (criterion == SplitCriterion::Gini) {
         for (size_t id : objectIds) {
             classIndices.emplace(target[id], 0);
         }
 
-        size_t nextClassIndex = 0;
-
+        size_t nextIndex = 0;
         for (auto& [label, index] : classIndices) {
             (void)label;
-            index = nextClassIndex++;
+            index = nextIndex++;
         }
 
-        classCount = classIndices.size();
-        totalClassCounts.assign(classCount, 0);
+        totalClassCounts.assign(classIndices.size(), 0.0L);
     }
 
-    vector<SortedObject> sortedIds;
-    sortedIds.reserve(n);
-    for (size_t id : objectIds) {
-        size_t classIndex = 0;
-        if (criterion == SplitCriterion::Gini) {
-            classIndex = classIndices.at(target[id]);
-            ++totalClassCounts[classIndex];
-        }
-        sortedIds.push_back({id, classIndex});
-    }
+    vector<SortedObject> sortedObjects;
+    sortedObjects.reserve(n);
 
     long double totalSum = 0.0L;
+    long double totalWeight = 0.0L;
 
-    if (criterion == SplitCriterion::Variance) {
-        for (size_t id : objectIds) {
-            totalSum += static_cast<long double>(target[id]);
+    for (size_t id : objectIds) {
+        const double value = features(id, feature);
+
+        if (!isfinite(value)) {
+            throw InvalidParameterError(
+                "Матрица содержит некорректные значения"
+            );
+        }
+
+        const size_t weight = getWeight(id, counts);
+        const long double w = static_cast<long double>(weight);
+
+        size_t classIndex = 0;
+
+        if (criterion == SplitCriterion::Variance) {
+            totalSum += w * static_cast<long double>(target[id]);
+        } else {
+            classIndex = classIndices.at(target[id]);
+            totalClassCounts[classIndex] += w;
+        }
+
+        totalWeight += w;
+
+        sortedObjects.push_back({id, classIndex, weight});
+    }
+
+    if (totalWeight <= 0.0L) {
+        throw InvalidParameterError(
+            "Суммарная кратность объектов должна быть положительной"
+        );
+    }
+
+    sort(
+        sortedObjects.begin(),
+        sortedObjects.end(),
+        [&features, feature](const SortedObject& a,
+                             const SortedObject& b) {
+            const double va = features(a.objectId, feature);
+            const double vb = features(b.objectId, feature);
+
+            if (va == vb) {
+                return a.objectId < b.objectId;
+            }
+
+            return va < vb;
+        }
+    );
+
+    const double firstValue =
+        features(sortedObjects.front().objectId, feature);
+    const double lastValue =
+        features(sortedObjects.back().objectId, feature);
+
+    result.isConstant = (firstValue == lastValue);
+
+    if (result.isConstant) {
+        return result;
+    }
+
+    size_t leftUniqueCount = 0;
+    long double leftWeight = 0.0L;
+    long double leftSum = 0.0L;
+
+    vector<long double> leftClassCounts(
+        totalClassCounts.size(), 0.0L
+    );
+
+    long double leftSquares = 0.0L;
+    long double rightSquares = 0.0L;
+
+    if (criterion == SplitCriterion::Gini) {
+        for (long double count : totalClassCounts) {
+            rightSquares += count * count;
         }
     }
 
@@ -135,126 +211,141 @@ optional<Split> findBestSplitImpl(
 
     optional<Split> bestSplit;
 
-    // Перебираем выбранные признаки.
-    for (size_t feature : featureIds) {
-        sort(
-            sortedIds.begin(),
-            sortedIds.end(),
-            [&features, feature](const SortedObject& a, const SortedObject& b) {
-                double valueA = features(a.objectId, feature);
-                double valueB = features(b.objectId, feature);
+    for (size_t pos = 0; pos + 1 < n; ++pos) {
+        const SortedObject& object = sortedObjects[pos];
 
-                if (valueA == valueB) {
-                    return a.objectId < b.objectId;
-                }
+        const size_t id = object.objectId;
+        const long double w =
+            static_cast<long double>(object.weight);
 
-                return valueA < valueB;
-            }
-        );
+        ++leftUniqueCount;
+        leftWeight += w;
 
-        size_t leftCount = 0;
-        long double leftSum = 0.0L;
+        if (criterion == SplitCriterion::Variance) {
+            leftSum += w * static_cast<long double>(target[id]);
+        } else {
+            const size_t c = object.classIndex;
 
-        vector<size_t> leftClassCounts(classCount, 0);
+            const long double a = leftClassCounts[c];
+            const long double b = totalClassCounts[c] - a;
 
-        long double leftSquares = 0.0L;
-        long double rightSquares = 0.0L;
+            leftSquares += 2.0L * a * w + w * w;
+            rightSquares += -2.0L * b * w + w * w;
 
-        if (criterion == SplitCriterion::Gini) {
-            for (size_t count : totalClassCounts) {
-                rightSquares +=
-                    static_cast<long double>(count) *
-                    static_cast<long double>(count);
-            }
+            leftClassCounts[c] += w;
         }
 
-        for (size_t pos = 0; pos + 1 < n; ++pos) {
-            const SortedObject& object = sortedIds[pos];
-            size_t objectIndex = object.objectId;
+        const double currentValue =
+            features(sortedObjects[pos].objectId, feature);
+        const double nextValue =
+            features(sortedObjects[pos + 1].objectId, feature);
 
-            ++leftCount;
+        if (currentValue == nextValue) {
+            continue;
+        }
 
-            if (criterion == SplitCriterion::Variance) {
-                leftSum +=
-                    static_cast<long double>(target[objectIndex]);
-            }
-            else {
-                size_t classIndex = object.classIndex;
+        const size_t rightUniqueCount = n - leftUniqueCount;
 
-                size_t leftBefore = leftClassCounts[classIndex];
-                size_t rightBefore =
-                    totalClassCounts[classIndex] - leftBefore;
+        if (leftUniqueCount < minSamplesLeaf ||
+            rightUniqueCount < minSamplesLeaf) {
+            continue;
+        }
 
-                leftSquares +=
-                    2.0L * static_cast<long double>(leftBefore) + 1.0L;
+        const long double rightWeight = totalWeight - leftWeight;
 
-                rightSquares += 1.0L -
-                    2.0L * static_cast<long double>(rightBefore);
+        if (leftWeight <= 0.0L || rightWeight <= 0.0L) {
+            continue;
+        }
 
-                ++leftClassCounts[classIndex];
-            }
+        long double score = 0.0L;
 
-            double currentValue =
-                features(sortedIds[pos].objectId, feature);
+        if (criterion == SplitCriterion::Variance) {
+            const long double rightSum = totalSum - leftSum;
 
-            double nextValue =
-                features(sortedIds[pos + 1].objectId, feature);
+            score =
+                leftSum * leftSum / leftWeight +
+                rightSum * rightSum / rightWeight;
+        } else {
+            score =
+                leftSquares / leftWeight +
+                rightSquares / rightWeight;
+        }
 
-            // Между одинаковыми значениями порог не ставим.
-            if (currentValue == nextValue) {
-                continue;
-            }
+        if (!isfinite(score)) {
+            throw InvalidParameterError(
+                "Оценка разбиения вышла за численный диапазон"
+            );
+        }
 
-            size_t rightCount = n - leftCount;
+        double threshold = midpoint(currentValue, nextValue);
 
-            if (leftCount < minSamplesLeaf ||
-                rightCount < minSamplesLeaf) {
-                continue;
-            }
+        if (threshold >= nextValue || threshold < currentValue) {
+            threshold = currentValue;
+        }
 
-            long double score = 0.0L;
+        const bool betterScore = score > bestScore;
 
-            if (criterion == SplitCriterion::Variance) {
-                long double rightSum = totalSum - leftSum;
+        const bool deterministicTie =
+            bestSplit.has_value() &&
+            score == bestScore &&
+            threshold < bestSplit->threshold;
 
-                score =
-                    leftSum * leftSum /
-                        static_cast<long double>(leftCount) +
-                    rightSum * rightSum /
-                        static_cast<long double>(rightCount);
-            }
-            else {
-                score =
-                    leftSquares / static_cast<long double>(leftCount) +
-                    rightSquares / static_cast<long double>(rightCount);
-            }
+        if (betterScore || deterministicTie) {
+            bestScore = score;
+            bestSplit = Split{feature, threshold, score};
+        }
+    }
 
-            if (!isfinite(score)) {
-                throw InvalidParameterError(
-                    "Оценка разбиения вышла за поддерживаемый численный диапазон"
-                );
-            }
+    result.best = bestSplit;
+    return result;
+}
 
-            double threshold = midpoint(currentValue, nextValue);
+optional<Split> findBestSplitImpl(
+    const Matrix& features,
+    span<const double> target,
+    const vector<size_t>& objectIds,
+    const vector<size_t>& featureIds,
+    SplitCriterion criterion,
+    size_t minSamplesLeaf,
+    span<const size_t> counts
+) {
+    validateCriterion(criterion);
+    validateInput(
+        features, target, objectIds, minSamplesLeaf, counts
+    );
 
-            // midpoint может округлиться до правого значения. В таком случае
-            // <= отправил бы оба значения влево; левое значение — безопасный
-            // порог между соседними представимыми числами.
-            if (threshold >= nextValue) {
-                threshold = currentValue;
-            }
+    optional<Split> bestSplit;
 
-            const bool betterScore = score > bestScore;
-            const bool deterministicTie =
-                bestSplit.has_value() && score == bestScore &&
-                (feature < bestSplit->featureIndex ||
-                 (feature == bestSplit->featureIndex &&
-                  threshold < bestSplit->threshold));
+    for (size_t feature : featureIds) {
+        FeatureSplitResult candidate = findForFeatureImpl(
+            features,
+            target,
+            objectIds,
+            feature,
+            criterion,
+            minSamplesLeaf,
+            counts
+        );
 
-            if (betterScore || deterministicTie) {
-                bestScore = score;
-                bestSplit = Split{feature, threshold, score};
-            }
+        if (!candidate.best.has_value()) {
+            continue;
+        }
+
+        const Split& split = *candidate.best;
+
+        const bool betterScore =
+            !bestSplit.has_value() ||
+            split.score > bestSplit->score;
+
+        const bool deterministicTie =
+            bestSplit.has_value() &&
+            split.score == bestSplit->score &&
+            (split.featureIndex < bestSplit->featureIndex ||
+             (split.featureIndex == bestSplit->featureIndex &&
+              split.threshold < bestSplit->threshold));
+
+        if (betterScore || deterministicTie) {
+            bestSplit = split;
         }
     }
 
@@ -269,7 +360,8 @@ optional<Split> SplitFinder::findBestSplit(
     const vector<size_t>& objectIds,
     const vector<size_t>& featureIds,
     SplitCriterion criterion,
-    size_t minSamplesLeaf
+    size_t minSamplesLeaf,
+    span<const size_t> counts
 ) {
     return findBestSplitImpl(
         features,
@@ -277,7 +369,8 @@ optional<Split> SplitFinder::findBestSplit(
         objectIds,
         featureIds,
         criterion,
-        minSamplesLeaf
+        minSamplesLeaf,
+        counts
     );
 }
 
@@ -286,9 +379,11 @@ optional<Split> SplitFinder::findBestSplit(
     span<const double> target,
     const vector<size_t>& objectIds,
     SplitCriterion criterion,
-    size_t minSamplesLeaf
+    size_t minSamplesLeaf,
+    span<const size_t> counts
 ) {
-    const auto featureIds = views::iota(size_t{0}, features.columns());
+    vector<size_t> featureIds(features.columns());
+    iota(featureIds.begin(), featureIds.end(), size_t{0});
 
     return findBestSplitImpl(
         features,
@@ -296,6 +391,27 @@ optional<Split> SplitFinder::findBestSplit(
         objectIds,
         featureIds,
         criterion,
-        minSamplesLeaf
+        minSamplesLeaf,
+        counts
+    );
+}
+
+FeatureSplitResult SplitFinder::findForFeature(
+    const Matrix& features,
+    span<const double> target,
+    const vector<size_t>& objectIds,
+    size_t feature,
+    SplitCriterion criterion,
+    size_t minSamplesLeaf,
+    span<const size_t> counts
+) {
+    return findForFeatureImpl(
+        features,
+        target,
+        objectIds,
+        feature,
+        criterion,
+        minSamplesLeaf,
+        counts
     );
 }

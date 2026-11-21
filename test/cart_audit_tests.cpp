@@ -473,6 +473,234 @@ void testMultilevelTreeSummaryAndLayouts() {
     }
 }
 
+void testWeightedRegressionWithBootstrapCounts() {
+    Matrix features({
+        {0.0},
+        {1.0},
+        {2.0}
+    });
+
+    const vector<double> target{0.0, 10.0, 100.0};
+    const vector<size_t> counts{3, 1, 0};
+
+    CartRegressor model(0);
+    model.fit_with_counts(features, target, counts);
+
+    const vector<double> predictions = model.predict(features);
+
+    // (0 * 3 + 10 * 1) / (3 + 1) = 2.5.
+    // Третий объект имеет нулевую кратность и не влияет на результат.
+    for (double prediction : predictions) {
+        assert(close(prediction, 2.5));
+    }
+}
+
+void testWeightedClassificationWithBootstrapCounts() {
+    Matrix features({
+        {0.0},
+        {1.0},
+        {2.0}
+    });
+
+    const vector<double> target{10.0, 42.0, 100.0};
+    const vector<size_t> counts{3, 1, 0};
+
+    CartClassifier model(0);
+    model.fit_with_counts(features, target, counts);
+
+    const span<const double> classes = model.classes();
+
+    // Все классы исходной выборки должны сохраняться,
+    // даже если кратность объекта соответствующего класса равна нулю.
+    assert(classes.size() == 3);
+    assert(classes[0] == 10.0);
+    assert(classes[1] == 42.0);
+    assert(classes[2] == 100.0);
+
+    const Matrix probabilities = model.predict_proba(features);
+
+    for (size_t i = 0; i < probabilities.rows(); ++i) {
+        assert(close(probabilities(i, 0), 0.75));
+        assert(close(probabilities(i, 1), 0.25));
+        assert(close(probabilities(i, 2), 0.0));
+    }
+
+    const vector<double> predictions = model.predict(features);
+
+    for (double prediction : predictions) {
+        assert(prediction == 10.0);
+    }
+}
+
+void testZeroBootstrapCountsAreIgnored() {
+    Matrix features({
+        {0.0},
+        {1.0},
+        {2.0},
+        {3.0}
+    });
+
+    const vector<double> target{5.0, 5.0, 1000.0, 2000.0};
+    const vector<size_t> counts{1, 1, 0, 0};
+
+    CartRegressor model(0);
+    model.fit_with_counts(features, target, counts);
+
+    const vector<double> predictions = model.predict(features);
+
+    for (double prediction : predictions) {
+        assert(close(prediction, 5.0));
+    }
+}
+
+void testRandomStateReproducibility() {
+    Matrix features({
+        {0.0, 1.0, 4.0, 2.0},
+        {1.0, 3.0, 2.0, 0.0},
+        {2.0, 0.0, 1.0, 4.0},
+        {3.0, 4.0, 3.0, 1.0},
+        {4.0, 2.0, 0.0, 3.0},
+        {5.0, 5.0, 5.0, 5.0}
+    });
+
+    const vector<double> target{
+        0.0, 10.0, 0.0, 10.0, 20.0, 20.0
+    };
+
+    const FeatureSearchParams searchParams{
+        FeatureMode::Sqrt, 1
+    };
+
+    CartRegressor first(
+        3, 2, 1, searchParams, 12345
+    );
+
+    CartRegressor second(
+        3, 2, 1, searchParams, 12345
+    );
+
+    first.fit(features, target);
+    second.fit(features, target);
+
+    const CartTreeSummary firstSummary = first.summary();
+    const CartTreeSummary secondSummary = second.summary();
+
+    assert(firstSummary.nodeCount == secondSummary.nodeCount);
+    assert(firstSummary.leafCount == secondSummary.leafCount);
+    assert(firstSummary.depth == secondSummary.depth);
+    assert(firstSummary.splits.size() == secondSummary.splits.size());
+
+    for (size_t i = 0; i < firstSummary.splits.size(); ++i) {
+        assert(
+            firstSummary.splits[i].featureIndex ==
+            secondSummary.splits[i].featureIndex
+        );
+
+        assert(
+            firstSummary.splits[i].threshold ==
+            secondSummary.splits[i].threshold
+        );
+    }
+
+    assert(first.predict(features) == second.predict(features));
+}
+
+void testRandomFeatureSearchModes() {
+    Matrix features({
+        {0.0, 5.0, 2.0, 8.0},
+        {1.0, 4.0, 3.0, 7.0},
+        {2.0, 3.0, 4.0, 6.0},
+        {3.0, 2.0, 5.0, 5.0},
+        {4.0, 1.0, 6.0, 4.0},
+        {5.0, 0.0, 7.0, 3.0}
+    });
+
+    const vector<double> target{
+        0.0, 0.0, 10.0, 10.0, 20.0, 20.0
+    };
+
+    CartRegressor sqrtModel(
+        3,
+        2,
+        1,
+        FeatureSearchParams{FeatureMode::Sqrt, 1},
+        42
+    );
+
+    CartRegressor countModel(
+        3,
+        2,
+        1,
+        FeatureSearchParams{FeatureMode::Count, 2},
+        42
+    );
+
+    sqrtModel.fit(features, target);
+    countModel.fit(features, target);
+
+    const vector<double> sqrtPredictions =
+        sqrtModel.predict(features);
+
+    const vector<double> countPredictions =
+        countModel.predict(features);
+
+    assert(sqrtPredictions.size() == target.size());
+    assert(countPredictions.size() == target.size());
+
+    for (double prediction : sqrtPredictions) {
+        assert(isfinite(prediction));
+    }
+
+    for (double prediction : countPredictions) {
+        assert(isfinite(prediction));
+    }
+}
+
+void testUnboundedTreeDepth() {
+    const vector<vector<double>> values{
+        {0.0, 0.0},
+        {1.0, 1.0},
+        {2.0, 2.0},
+        {3.0, 3.0},
+        {4.0, 4.0},
+        {5.0, 5.0},
+        {6.0, 6.0},
+        {7.0, 7.0}
+    };
+
+    const vector<double> target{
+        0.0, 1.0, 0.0, 1.0,
+        10.0, 11.0, 10.0, 11.0
+    };
+
+    Matrix features(values);
+
+    CartRegressor model(
+        nullopt,
+        2,
+        1,
+        FeatureSearchParams{FeatureMode::All, 1},
+        123
+    );
+
+    model.fit(features, target);
+
+    const CartTreeSummary summary = model.summary();
+
+    // Без ограничения глубины дерево должно иметь
+    // возможность построить больше одного уровня.
+    assert(summary.depth >= 2);
+    assert(summary.nodeCount > 3);
+
+    const vector<double> predictions = model.predict(features);
+
+    assert(predictions.size() == target.size());
+
+    for (double prediction : predictions) {
+        assert(isfinite(prediction));
+    }
+}
+
 } // namespace
 
 int main() {
@@ -490,4 +718,10 @@ int main() {
     testFitAndPredictContractErrors();
     testDefaultAndCheckedMatrixSliceAccess();
     testMultilevelTreeSummaryAndLayouts();
+    testWeightedRegressionWithBootstrapCounts();
+    testWeightedClassificationWithBootstrapCounts();
+    testZeroBootstrapCountsAreIgnored();
+    testRandomStateReproducibility();
+    testRandomFeatureSearchModes();
+    testUnboundedTreeDepth();
 }
