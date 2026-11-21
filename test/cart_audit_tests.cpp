@@ -177,6 +177,38 @@ void testProbabilitiesUseGlobalSortedClassesAndTieBreak() {
     assert(tied.predict(tieFeatures)[0] == 10.0);
 }
 
+void testLocalClassEncodingWithClassesAbsentFromLeaves() {
+    Matrix features({
+        {0.0}, {1.0}, {2.0}, {3.0}, {4.0}, {5.0}
+    });
+    const vector<double> target{10.0, 10.0, 42.0, 42.0, 100.0, 100.0};
+
+    CartClassifier classifier(2);
+    classifier.fit(features, target);
+
+    const span<const double> classes = classifier.classes();
+    assert(classes.size() == 3);
+    assert(classes[0] == 10.0);
+    assert(classes[1] == 42.0);
+    assert(classes[2] == 100.0);
+
+    const CartTreeSummary summary = classifier.summary();
+    assert(summary.splits.size() == 2);
+    assert(summary.splits[0].threshold == 1.5);
+    assert(summary.splits[1].threshold == 3.5);
+
+    const Matrix probabilities = classifier.predict_proba(features);
+    assert(probabilities(0, 0) == 1.0);
+    assert(probabilities(0, 1) == 0.0);
+    assert(probabilities(0, 2) == 0.0);
+    assert(probabilities(2, 0) == 0.0);
+    assert(probabilities(2, 1) == 1.0);
+    assert(probabilities(2, 2) == 0.0);
+    assert(probabilities(5, 0) == 0.0);
+    assert(probabilities(5, 1) == 0.0);
+    assert(probabilities(5, 2) == 1.0);
+}
+
 void testRefitEmptyPredictionAndClassReplacement() {
     Matrix firstFeatures(vector<vector<double>>{{0.0}, {1.0}});
     const vector<double> firstTarget{10.0, 10.0};
@@ -450,6 +482,7 @@ int main() {
     testIdenticalTargetsStopBothTrees();
     testClassificationStumpEquivalence();
     testProbabilitiesUseGlobalSortedClassesAndTieBreak();
+    testLocalClassEncodingWithClassesAbsentFromLeaves();
     testRefitEmptyPredictionAndClassReplacement();
     testRegressorRepeatedFit();
     testParametersAndImpossibleMinimumLeafSize();

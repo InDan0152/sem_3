@@ -42,13 +42,6 @@
   `predict(features)`. `IRegressor` и `IClassifier` разделяют задачи;
   классификатор также предоставляет `predict_proba()` и отсортированный
   `classes()`.
-- NW реализована классом-помощником `NadarayaWatsonSearch` и моделями
-  `NadarayaWatsonRegressor` / `NadarayaWatsonClassifier`. Помощник вычисляет
-  расстояния и нормированные гауссовы веса; конкретные модели агрегируют
-  числовой отклик или вероятности классов.
-- В треке со звёздочкой основная новая модель — `CartRegressor` и
-  `CartClassifier`. NW является альтернативным основным треком и для сдачи
-  варианта CART не требуется.
 - `DecisionStump` и CART используют общий `SplitFinder`. Он получает матрицу,
   отклики, индексы объектов узла, разрешённые признаки, критерий и ограничение
   размера листа; возвращает лучший `Split` или отсутствие допустимого
@@ -116,8 +109,8 @@ ctest --test-dir build --output-on-failure
 ```
 
 В CTest зарегистрированы `lab1_tests`, `decision_stump_tests`,
-`matrix_slice_tests`, `nadaraya_watson_tests`, `cart_tests` и
-`cart_audit_tests`. Проверяй также, что сборка использует `-Wall -Wextra`
+`matrix_slice_tests`, `cart_tests`, `cart_audit_tests` и
+`decision_stump_cli_tests`. Проверяй также, что сборка использует `-Wall -Wextra`
 (в текущем CMake дополнительно `-Wpedantic`), а ASan/UBSan в Debug запускаются
 только когда toolchain и runtime-библиотеки это поддерживают. Не считай
 санитайзеры выполненными по факту их наличия в настройках: фиксируй реальный

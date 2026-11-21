@@ -44,7 +44,7 @@ struct PreprocessingConfig {
     EncodingStrategy encoding = EncodingStrategy::OneHot;
 };
 
-// Результат предобработки датасета.
+// Результат предобработки.
 struct ProcessedDataset {
     vector<vector<double>> data;
     vector<string> featureNames;
@@ -70,16 +70,12 @@ struct FeatureTransformParams {
 class DatasetPreprocessor {
 private:
     PreprocessingConfig config;
-
     vector<FeatureTransformParams> featureParams;
     vector<string> outputFeatureNames;
-
     bool fitted = false;
 
 public:
-    explicit DatasetPreprocessor(
-        const PreprocessingConfig& config = {}
-    );
+    explicit DatasetPreprocessor(const PreprocessingConfig& config = {});
 
     // Рассчитывает параметры предобработки по обучающим данным.
     void fit(const Dataset& dataset);
@@ -91,28 +87,32 @@ public:
     ProcessedDataset fitTransform(const Dataset& dataset);
 };
 
-// Старая предобработка из лабораторной №1.
-bool preprocessDataset(
+// Предобработка датасета.
+void preprocessDataset(
     const Dataset& dataset,
     ProcessedDataset& processedDataset,
     const PreprocessingConfig& config = {}
 );
 
-bool saveProcessedDataset(
+// Сохранение обработанного датасета в CSV.
+void saveProcessedDataset(
     const ProcessedDataset& processedDataset,
     const string& filename
 );
 
-bool saveProcessedDatasetBinary(
+// Сохранение обработанного датасета в бинарном формате.
+void saveProcessedDatasetBinary(
     const ProcessedDataset& processedDataset,
     const string& filename
 );
 
-bool loadProcessedDatasetBinary(
+// Загрузка обработанного датасета из бинарного формата.
+void loadProcessedDatasetBinary(
     const string& filename,
     ProcessedDataset& processedDataset
 );
 
+// Сравнение двух обработанных датасетов.
 bool compareProcessedDatasets(
     const ProcessedDataset& first,
     const ProcessedDataset& second

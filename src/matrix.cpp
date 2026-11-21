@@ -198,24 +198,48 @@ MatrixSlice<const double> Matrix::operator()(
 
 // Старый интерфейс доступа к строке.
 span<double> Matrix::operator[](size_t row) {
-    return at(row);
+    if (storageLayout != MatrixLayout::RowMajor) {
+        throw NonContiguousSliceError(
+            "Строка матрицы ColumnMajor не является непрерывной"
+        );
+    }
+
+    if (columnCount == 0) {
+        return {};
+    }
+
+    return span<double>(data.data() + row * columnCount, columnCount);
 }
 
 span<const double> Matrix::operator[](size_t row) const {
-    return at(row);
+    if (storageLayout != MatrixLayout::RowMajor) {
+        throw NonContiguousSliceError(
+            "Строка матрицы ColumnMajor не является непрерывной"
+        );
+    }
+
+    if (columnCount == 0) {
+        return {};
+    }
+
+    return span<const double>(data.data() + row * columnCount, columnCount);
 }
 
 // Проверяемый доступ к строке.
 span<double> Matrix::at(size_t row) {
-    auto rowSlice = (*this)(row, nullopt);
+    if (row >= rowCount) {
+        throw out_of_range("Индекс строки матрицы вне диапазона");
+    }
 
-    return rowSlice.as_span();
+    return (*this)[row];
 }
 
 span<const double> Matrix::at(size_t row) const {
-    auto rowSlice = (*this)(row, nullopt);
+    if (row >= rowCount) {
+        throw out_of_range("Индекс строки матрицы вне диапазона");
+    }
 
-    return rowSlice.as_span();
+    return (*this)[row];
 }
 
 double& Matrix::at(size_t row, size_t column) {

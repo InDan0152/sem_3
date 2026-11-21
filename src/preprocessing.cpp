@@ -6,7 +6,6 @@
 #include <fstream>
 #include <limits>
 #include <algorithm>
-#include <iostream>
 #include <set>
 #include <stdexcept>
 #include <numeric>
@@ -15,13 +14,13 @@ using namespace std;
 
 namespace {
 
-bool fillNumericalMissing(
+void fillNumericalMissing(
     const Column& column,
     vector<double>& values,
     NumericalMissingStrategy strategy
 ) {
     if (column.type != FeatureType::Numerical) {
-        return false;
+        throw invalid_argument("Ожидался числовой признак: " + column.name);
     }
 
     values.clear();
@@ -36,15 +35,16 @@ bool fillNumericalMissing(
         NumericalStatistics statistics;
 
         if (!calculateNumericalStatistics(column, statistics)) {
-            cerr << "Ошибка при расчёте статистики признака "
-                 << column.name << '\n';
-            return false;
+            throw runtime_error(
+                "Не удалось рассчитать статистику числового признака " +
+                column.name
+            );
         }
 
         if (!statistics.hasValues) {
-            cerr << "Ошибка: числовой признак " << column.name
-                 << " полностью пустой\n";
-            return false;
+            throw invalid_argument(
+                "Числовой признак " + column.name + " полностью пустой"
+            );
         }
 
         if (strategy == NumericalMissingStrategy::Mean) {
@@ -55,7 +55,7 @@ bool fillNumericalMissing(
         }
     }
     else if (strategy != NumericalMissingStrategy::Zero) {
-        return false;
+        throw invalid_argument("Неизвестная стратегия заполнения пропусков");
     }
 
     // Заполняем пропуски выбранным значением.
@@ -68,17 +68,19 @@ bool fillNumericalMissing(
         }
     }
 
-    return true;
 }
 
-bool fillCategoricalMissing(
+void fillCategoricalMissing(
     const Column& column,
     vector<string>& values,
     CategoricalMissingStrategy strategy
 ) {
-    if (column.type != FeatureType::Categorical ||
-        strategy != CategoricalMissingStrategy::MissingCategory) {
-        return false;
+    if (column.type != FeatureType::Categorical) {
+        throw invalid_argument("Ожидался категориальный признак: " + column.name);
+    }
+
+    if (strategy != CategoricalMissingStrategy::MissingCategory) {
+        throw invalid_argument("Неизвестная стратегия заполнения категорий");
     }
 
     values.clear();
@@ -93,15 +95,14 @@ bool fillCategoricalMissing(
         }
     }
 
-    return true;
 }
 
-bool scaleNumericalValues(
+void scaleNumericalValues(
     vector<double>& values,
     ScalingStrategy strategy
 ) {
     if (values.empty()) {
-        return true;
+        return;
     }
 
     if (strategy == ScalingStrategy::MinMax) {
@@ -115,7 +116,7 @@ bool scaleNumericalValues(
             for (double& value : values) {
                 value = 0.0;
             }
-            return true;
+            return;
         }
 
         for (double& value : values) {
@@ -145,7 +146,7 @@ bool scaleNumericalValues(
             for (double& value : values) {
                 value = 0.0;
             }
-            return true;
+            return;
         }
 
         for (double& value : values) {
@@ -186,7 +187,7 @@ bool scaleNumericalValues(
             for (double& value : values) {
                 value = 0.0;
             }
-            return true;
+            return;
         }
 
         for (double& value : values) {
@@ -194,13 +195,11 @@ bool scaleNumericalValues(
         }
     }
     else {
-        return false;
+        throw invalid_argument("Неизвестная стратегия масштабирования");
     }
-
-    return true;
 }
 
-bool encodeCategoricalValues(const Column& column,const vector<string>& values,
+void encodeCategoricalValues(const Column& column,const vector<string>& values,
 vector<vector<double>>& data,vector<string>& featureNames,EncodingStrategy strategy
 ) {
     // Получаем уникальные категории в отсортированном порядке.
@@ -236,7 +235,7 @@ vector<vector<double>>& data,vector<string>& featureNames,EncodingStrategy strat
             );
 
             if (it == categories.end() || *it != values[i]) {
-                return false;
+                throw runtime_error("Не удалось найти категорию для кодирования");
             }
 
             const size_t categoryCode =
@@ -246,10 +245,8 @@ vector<vector<double>>& data,vector<string>& featureNames,EncodingStrategy strat
         }
     }
     else {
-        return false;
+        throw invalid_argument("Неизвестная стратегия кодирования");
     }
-
-    return true;
 } 
 }
 
@@ -285,14 +282,13 @@ static double calculateMean(const vector<double>& values) {
     return sum / static_cast<double>(values.size());
 }
 
-bool preprocessDataset(
+void preprocessDataset(
     const Dataset& dataset,
     ProcessedDataset& processedDataset,
     const PreprocessingConfig& config
 ) {
     if (dataset.columns.empty()) {
-        cerr << "Ошибка: датасет не содержит признаков\n";
-        return false;
+        throw invalid_argument("Датасет не содержит признаков");
     }
 
     size_t recordCount = 0;
@@ -304,7 +300,6 @@ bool preprocessDataset(
         recordCount = dataset.columns[0].categoricalValues.size();
     }
 
-
     for (const Column& column : dataset.columns) {
         const size_t columnSize =
             (column.type == FeatureType::Numerical)
@@ -312,8 +307,7 @@ bool preprocessDataset(
                 : column.categoricalValues.size();
 
         if (columnSize != recordCount) {
-            cerr << "Ошибка: разное количество записей в признаках\n";
-            return false;
+            throw invalid_argument("Разное количество записей в признаках");
         }
     }
 
@@ -323,18 +317,8 @@ bool preprocessDataset(
     for (const Column& column : dataset.columns) {
         if (column.type == FeatureType::Numerical) {
             vector<double> values;
-
-            if (!fillNumericalMissing(
-                    column, values, config.numericalMissing)) {
-                cerr << "Ошибка заполнения числового признака "
-                    << column.name << '\n';
-                return false;
-            }
-
-            if (!scaleNumericalValues(values, config.scaling)) {
-                cerr << "Ошибка: неподдерживаемая стратегия масштабирования\n";
-                return false;
-            }
+            fillNumericalMissing(column, values, config.numericalMissing);
+            scaleNumericalValues(values, config.scaling);
 
             processedDataset.featureNames.push_back(column.name);
 
@@ -344,40 +328,27 @@ bool preprocessDataset(
         }
         else {
             vector<string> values;
-
-            if (!fillCategoricalMissing(
-                    column, values, config.categoricalMissing)) {
-                cerr << "Ошибка заполнения категориального признака "
-                     << column.name << '\n';
-                return false;
-            }
-
-            if (!encodeCategoricalValues(
-                    column,
-                    values,
-                    processedDataset.data,
-                    processedDataset.featureNames,
-                    config.encoding)) {
-                cerr << "Ошибка: неподдерживаемая стратегия кодирования\n";
-                return false;
-            }
+            fillCategoricalMissing(column, values, config.categoricalMissing);
+            encodeCategoricalValues(
+                column,
+                values,
+                processedDataset.data,
+                processedDataset.featureNames,
+                config.encoding
+            );
         }
     }
-
-    return true;
 }
 
-bool saveProcessedDataset(
+void saveProcessedDataset(
     const ProcessedDataset& processedDataset,
     const string& filename
 ) {
     ofstream file(filename);
 
     if (!file.is_open()) {
-        cerr << "Ошибка: не удалось создать файл " << filename << endl;
-        return false;
+        throw runtime_error("Не удалось создать файл: " + filename);
     }
-
 
     for (size_t j = 0; j < processedDataset.featureNames.size(); j++) {
         if (j > 0) file << ';';
@@ -385,103 +356,92 @@ bool saveProcessedDataset(
     }
     file << '\n';
 
-
     for (const auto& row : processedDataset.data) {
         for (size_t j = 0; j < row.size(); j++) {
             if (j > 0) file << ';';
             file << row[j];
         }
-        file << endl;
+        file << '\n';
     }
 
-    file.close();
-    return true;
+    if (!file) {
+        throw runtime_error("Ошибка при записи файла: " + filename);
+    }
 }
 
-bool saveProcessedDatasetBinary(
+void saveProcessedDatasetBinary(
     const ProcessedDataset& processedDataset,
     const string& filename
 ) {
     ofstream file(filename, ios::binary);
 
     if (!file.is_open()) {
-        cerr << "Ошибка: не удалось создать бинарный файл\n";
-        return false;
+        throw runtime_error("Не удалось создать бинарный файл: " + filename);
     }
 
-    uint64_t rows = processedDataset.data.size();
-    uint64_t columns = processedDataset.featureNames.size();
-
+    const uint64_t rows = processedDataset.data.size();
+    const uint64_t columns = processedDataset.featureNames.size();
 
     for (const auto& row : processedDataset.data) {
         if (row.size() != columns) {
-            cerr << "Ошибка: неправильный размер строки матрицы\n";
-            return false;
+            throw invalid_argument("Неправильный размер строки матрицы");
         }
     }
 
     file.write(reinterpret_cast<const char*>(&rows), sizeof(rows));
     file.write(reinterpret_cast<const char*>(&columns), sizeof(columns));
 
-    uint32_t storageOrder = 1;
+    const uint32_t storageOrder = 1;
     file.write(reinterpret_cast<const char*>(&storageOrder), sizeof(storageOrder));
 
     for (const string& name : processedDataset.featureNames) {
-        uint64_t length = name.size();
-
+        const uint64_t length = name.size();
         file.write(reinterpret_cast<const char*>(&length), sizeof(length));
-        file.write(name.data(), length);
+        file.write(name.data(), static_cast<streamsize>(length));
     }
 
     for (const auto& row : processedDataset.data) {
         file.write(
             reinterpret_cast<const char*>(row.data()),
-            row.size() * sizeof(double)
+            static_cast<streamsize>(row.size() * sizeof(double))
         );
     }
 
     if (!file) {
-        cerr << "Ошибка при записи бинарного файла\n";
-        return false;
+        throw runtime_error("Ошибка при записи бинарного файла");
     }
-
-    return true;
 }
 
-bool loadProcessedDatasetBinary(
+void loadProcessedDatasetBinary(
     const string& filename,
     ProcessedDataset& processedDataset
 ) {
     ifstream file(filename, ios::binary);
 
     if (!file.is_open()) {
-        cerr << "Ошибка: не удалось открыть бинарный файл\n";
-        return false;
+        throw runtime_error("Не удалось открыть бинарный файл: " + filename);
     }
 
-    uint64_t rows;
-    uint64_t columns;
-    uint32_t storageOrder;
+    uint64_t rows = 0;
+    uint64_t columns = 0;
+    uint32_t storageOrder = 0;
 
     file.read(reinterpret_cast<char*>(&rows), sizeof(rows));
     file.read(reinterpret_cast<char*>(&columns), sizeof(columns));
     file.read(reinterpret_cast<char*>(&storageOrder), sizeof(storageOrder));
 
     if (!file || storageOrder != 1) {
-        cerr << "Ошибка: неправильный заголовок файла\n";
-        return false;
+        throw invalid_argument("Неправильный заголовок бинарного файла");
     }
 
     if (rows > numeric_limits<size_t>::max() ||
         columns > numeric_limits<size_t>::max()) {
-        cerr << "Ошибка: слишком большие размеры матрицы\n";
-        return false;
+        throw length_error("Слишком большие размеры матрицы");
     }
 
     if (columns != 0 &&
         rows > numeric_limits<size_t>::max() / columns) {
-        cerr << "Ошибка: переполнение размера матрицы\n";
-        return false;
+        throw length_error("Переполнение размера матрицы");
     }
 
     processedDataset.data.assign(
@@ -490,42 +450,42 @@ bool loadProcessedDatasetBinary(
     );
 
     processedDataset.featureNames.clear();
+    processedDataset.featureNames.reserve(static_cast<size_t>(columns));
 
     for (uint64_t i = 0; i < columns; i++) {
-        uint64_t length;
-
+        uint64_t length = 0;
         file.read(reinterpret_cast<char*>(&length), sizeof(length));
 
-        if (!file || length > numeric_limits<size_t>::max()) {
-            cerr << "Ошибка при чтении имени признака\n";
-            return false;
+        if (!file || length > numeric_limits<size_t>::max() ||
+            length > static_cast<uint64_t>(numeric_limits<streamsize>::max())) {
+            throw runtime_error("Ошибка при чтении имени признака");
         }
 
         string name(static_cast<size_t>(length), '\0');
-
         file.read(name.data(), static_cast<streamsize>(length));
 
         if (!file) {
-            cerr << "Ошибка при чтении имени признака\n";
-            return false;
+            throw runtime_error("Ошибка при чтении имени признака");
         }
 
-        processedDataset.featureNames.push_back(name);
+        processedDataset.featureNames.push_back(move(name));
     }
 
     for (auto& row : processedDataset.data) {
+        const size_t byteCount = row.size() * sizeof(double);
+        if (byteCount > static_cast<size_t>(numeric_limits<streamsize>::max())) {
+            throw length_error("Слишком большой размер строки матрицы");
+        }
+
         file.read(
             reinterpret_cast<char*>(row.data()),
-            static_cast<streamsize>(row.size() * sizeof(double))
+            static_cast<streamsize>(byteCount)
         );
 
         if (!file) {
-            cerr << "Ошибка при чтении значений матрицы\n";
-            return false;
+            throw runtime_error("Ошибка при чтении значений матрицы");
         }
     }
-
-    return true;
 }
 
 bool compareProcessedDatasets(

@@ -193,11 +193,11 @@ void test_predict_before_fit() {
 
     DecisionStump model(SplitCriterion::Variance, 1);
 
-    check_throws(
+    check_throws_type<ModelUsageError>(
         [&]() {
             model.predict(features);
         },
-        "Ожидалось исключение при predict до fit"
+        "predict до fit: ожидался ModelUsageError"
     );
 }
 
@@ -219,11 +219,11 @@ void test_wrong_feature_count() {
         {1.0, 2.0}
     });
 
-    check_throws(
+    check_throws_type<DimensionMismatchError>(
         [&]() {
             model.predict(testFeatures);
         },
-        "Ожидалось исключение при несовпадении количества признаков"
+        "predict: ожидался DimensionMismatchError при неверном числе признаков"
     );
 }
 
@@ -580,6 +580,47 @@ void test_single_class_classification() {
     }
 }
 
+void test_single_object_training() {
+    Matrix features(vector<vector<double>>{{2.5}});
+
+    for (const auto [criterion, targetValue] : {
+             pair{SplitCriterion::Variance, 17.0},
+             pair{SplitCriterion::Gini, 42.0}
+         }) {
+        const vector<double> target{targetValue};
+        DecisionStump model(criterion, 1);
+        model.fit(features, target);
+
+        check(!model.has_split(),
+              "Один объект: разбиение не должно быть найдено");
+        check_near(model.constant_prediction(), targetValue,
+                   "Один объект: неверный константный прогноз");
+
+        const vector<double> predictions = model.predict(features);
+        check(predictions.size() == 1,
+              "Один объект: неверный размер результата predict");
+        check_near(predictions[0], targetValue,
+                   "Один объект: неверное предсказание");
+    }
+}
+
+void test_predict_non_finite_feature() {
+    Matrix trainFeatures(vector<vector<double>>{{0.0}, {1.0}});
+    const vector<double> target{0.0, 1.0};
+    DecisionStump model(SplitCriterion::Variance, 1);
+    model.fit(trainFeatures, target);
+
+    Matrix invalidFeatures(vector<vector<double>>{{
+        numeric_limits<double>::quiet_NaN()
+    }});
+    check_throws_type<InvalidParameterError>(
+        [&]() {
+            (void)model.predict(invalidFeatures);
+        },
+        "predict с NaN: ожидался InvalidParameterError"
+    );
+}
+
 // Проверяем работу модели через базовый интерфейс IModel.
 void test_i_model_integration() {
     Matrix features({
@@ -646,6 +687,12 @@ int main() {
 
         test_single_class_classification();
         cout << "[OK] Классификация с одним классом" << endl;
+
+        test_single_object_training();
+        cout << "[OK] Обучение на одном объекте" << endl;
+
+        test_predict_non_finite_feature();
+        cout << "[OK] Неконечный признак predict" << endl;
 
         test_i_model_integration();
         cout << "[OK] Интеграция через IModel" << endl;

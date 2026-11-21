@@ -8,6 +8,7 @@
 #include <vector>
 #include <algorithm>
 #include <cmath>
+#include <functional>
 
 #include "csv_loader.hpp"
 #include "statistics.hpp"
@@ -16,9 +17,7 @@
 #include "supervised_dataset.hpp"
 #include "dataset_splitter.hpp"
 #include "matrix.hpp"
-#include "distance.hpp"
-#include "knn.hpp"
-#include "nadaraya_watson.hpp"
+#include "decision_stump.hpp"
 #include "cart.hpp"
 #include "model.hpp"
 
@@ -77,22 +76,6 @@ bool parseEncodingStrategy(const string& value, EncodingStrategy& strategy) {
     return true;
 }
 
-unique_ptr<IDistance> createDistance(const string& value) {
-    if (value == "euclidean") {
-        return make_unique<EuclideanDistance>();
-    }
-    else if (value == "manhattan") {
-        return make_unique<ManhattanDistance>();
-    }
-    else if (value == "chebyshev") {
-        return make_unique<ChebyshevDistance>();
-    }
-
-    throw invalid_argument(
-        "Неизвестная метрика расстояния: " + value
-    );
-}
-
 void printCartSummary(
     const CartTreeSummary& summary,
     const vector<string>& featureNames
@@ -117,6 +100,38 @@ void printCartSummary(
     }
 }
 
+void printDecisionStumpSummary(
+    const DecisionStump& stump,
+    const vector<string>& featureNames
+) {
+    const streamsize previousPrecision = cout.precision();
+    const ios::fmtflags previousFlags = cout.flags();
+
+    cout << "\nРешающий пень:\n";
+    if (!stump.has_split()) {
+        cout << "Допустимое разбиение не найдено.\n"
+             << "Константное предсказание: "
+             << setprecision(8) << stump.constant_prediction() << '\n';
+    }
+    else {
+        const size_t featureIndex = stump.split_feature();
+        const string featureName = featureIndex < featureNames.size()
+            ? featureNames[featureIndex]
+            : "feature_" + to_string(featureIndex);
+
+        cout << "Индекс признака: " << featureIndex
+             << " (" << featureName << ")\n"
+             << "Порог: " << setprecision(8) << stump.split_threshold() << '\n'
+             << "Предсказание левого листа: "
+             << stump.left_prediction() << '\n'
+             << "Предсказание правого листа: "
+             << stump.right_prediction() << '\n';
+    }
+
+    cout.flags(previousFlags);
+    cout.precision(previousPrecision);
+}
+
 
 // Универсальный запуск моделей машинного обучения.
 int runMachineLearning(
@@ -125,10 +140,6 @@ int runMachineLearning(
     const PreprocessingConfig& preprocessingConfig,
     const string& modelName,
     const string& task,
-    size_t k,
-    double bandwidth,
-    const string& metricName,
-    const string& weightingName,
     size_t maxDepth,
     size_t minSamplesSplit,
     size_t minSamplesLeaf
@@ -206,48 +217,34 @@ int runMachineLearning(
     // ========================================================
 
     if (task == "classification") {
-        unique_ptr<IClassifier> model;
+        unique_ptr<IModel> model;
+        function<void(const vector<string>&)> printModelSummary;
+        function<Matrix(const Matrix&)> predictProbabilities;
+        bool printSummaryBeforeTrainedMessage = false;
 
-        if (modelName == "knn") {
-            Weighting weighting;
-
-            if (weightingName == "uniform") {
-                weighting = Weighting::Uniform;
-            }
-            else if (weightingName == "distance") {
-                weighting = Weighting::Distance;
-            }
-            else {
-                throw invalid_argument(
-                    "Неизвестный способ взвешивания: " + weightingName
-                );
-            }
-
-            model = make_unique<KnnClassifier>(
-                k,
-                createDistance(metricName),
-                weighting
-            );
-
-            cout << "Количество соседей: " << k << '\n';
-            cout << "Метрика: " << metricName << '\n';
-            cout << "Взвешивание: " << weightingName << '\n';
-        }
-        else if (modelName == "nw") {
-            model = make_unique<NadarayaWatsonClassifier>(
-                bandwidth,
-                createDistance(metricName)
-            );
-
-            cout << "Ширина окна h: " << bandwidth << '\n';
-            cout << "Метрика: " << metricName << '\n';
+        if (modelName == "decision_stump") {
+            auto stump = make_unique<DecisionStump>(SplitCriterion::Gini, 1);
+            DecisionStump* stumpView = stump.get();
+            model = move(stump);
+            printModelSummary = [stumpView](const vector<string>& featureNames) {
+                printDecisionStumpSummary(*stumpView, featureNames);
+            };
         }
         else if (modelName == "cart") {
-            model = make_unique<CartClassifier>(
+            auto cart = make_unique<CartClassifier>(
                 maxDepth,
                 minSamplesSplit,
                 minSamplesLeaf
             );
+            CartClassifier* cartView = cart.get();
+            model = move(cart);
+            printModelSummary = [cartView](const vector<string>& featureNames) {
+                printCartSummary(cartView->summary(), featureNames);
+            };
+            predictProbabilities = [cartView](const Matrix& features) {
+                return cartView->predict_proba(features);
+            };
+            printSummaryBeforeTrainedMessage = true;
 
             cout << "Максимальная глубина: " << maxDepth << '\n';
             cout << "Минимум для разбиения: "
@@ -266,18 +263,24 @@ int runMachineLearning(
             span<const double>(split.train.targets)
         );
 
-        if (modelName == "cart") {
-            printCartSummary(
-                static_cast<CartClassifier*>(model.get())->summary(),
-                trainProcessed.featureNames
-            );
+        if (printSummaryBeforeTrainedMessage) {
+            printModelSummary(trainProcessed.featureNames);
         }
 
         cout << "\nМодель обучена.\n";
 
+        if (printModelSummary && !printSummaryBeforeTrainedMessage) {
+            printModelSummary(trainProcessed.featureNames);
+        }
+
         vector<double> predictions = model->predict(testMatrix);
-        Matrix probabilities = model->predict_proba(testMatrix);
-        span<const double> classes = model->classes();
+        Matrix probabilities(0, 0);
+        if (predictProbabilities) {
+            probabilities = predictProbabilities(testMatrix);
+        }
+        vector<double> classes = split.train.targets;
+        sort(classes.begin(), classes.end());
+        classes.erase(unique(classes.begin(), classes.end()), classes.end());
 
          const size_t classCount = classes.size();
 
@@ -444,17 +447,19 @@ int runMachineLearning(
                      : predictedName->second)
                  << '\n';
 
-            cout << "Вероятности:\n";
-
-            for (size_t j = 0; j < classes.size(); ++j) {
-                const auto name = classDisplayNames.find(classes[j]);
-                cout << "  Класс "
-                     << (name == classDisplayNames.end()
-                         ? to_string(classes[j])
-                         : name->second)
-                     << ": "
-                     << probabilities(i, j) * 100.0 << "%\n";
+            if (predictProbabilities) {
+                cout << "Вероятности:\n";
+                for (size_t j = 0; j < classes.size(); ++j) {
+                    const auto name = classDisplayNames.find(classes[j]);
+                    cout << "  Класс "
+                         << (name == classDisplayNames.end()
+                             ? to_string(classes[j])
+                             : name->second)
+                         << ": "
+                         << probabilities(i, j) * 100.0 << "%\n";
+                }
             }
+
         }
 
         return 0;
@@ -464,48 +469,30 @@ int runMachineLearning(
     // РЕГРЕССИЯ
     // ========================================================
 
-    unique_ptr<IRegressor> model;
+    unique_ptr<IModel> model;
+    function<void(const vector<string>&)> printModelSummary;
+    bool printSummaryBeforeTrainedMessage = false;
 
-    if (modelName == "knn") {
-        Weighting weighting;
-
-        if (weightingName == "uniform") {
-            weighting = Weighting::Uniform;
-        }
-        else if (weightingName == "distance") {
-            weighting = Weighting::Distance;
-        }
-        else {
-            throw invalid_argument(
-                "Неизвестный способ взвешивания: " + weightingName
-            );
-        }
-
-        model = make_unique<KnnRegressor>(
-            k,
-            createDistance(metricName),
-            weighting
-        );
-
-        cout << "Количество соседей: " << k << '\n';
-        cout << "Метрика: " << metricName << '\n';
-        cout << "Взвешивание: " << weightingName << '\n';
-    }
-    else if (modelName == "nw") {
-        model = make_unique<NadarayaWatsonRegressor>(
-            bandwidth,
-            createDistance(metricName)
-        );
-
-        cout << "Ширина окна h: " << bandwidth << '\n';
-        cout << "Метрика: " << metricName << '\n';
+    if (modelName == "decision_stump") {
+        auto stump = make_unique<DecisionStump>(SplitCriterion::Variance, 1);
+        DecisionStump* stumpView = stump.get();
+        model = move(stump);
+        printModelSummary = [stumpView](const vector<string>& featureNames) {
+            printDecisionStumpSummary(*stumpView, featureNames);
+        };
     }
     else if (modelName == "cart") {
-        model = make_unique<CartRegressor>(
+        auto cart = make_unique<CartRegressor>(
             maxDepth,
             minSamplesSplit,
             minSamplesLeaf
         );
+        CartRegressor* cartView = cart.get();
+        model = move(cart);
+        printModelSummary = [cartView](const vector<string>& featureNames) {
+            printCartSummary(cartView->summary(), featureNames);
+        };
+        printSummaryBeforeTrainedMessage = true;
 
         cout << "Максимальная глубина: " << maxDepth << '\n';
         cout << "Минимум для разбиения: "
@@ -524,14 +511,15 @@ int runMachineLearning(
         span<const double>(split.train.targets)
     );
 
-    if (modelName == "cart") {
-        printCartSummary(
-            static_cast<CartRegressor*>(model.get())->summary(),
-            trainProcessed.featureNames
-        );
+    if (printSummaryBeforeTrainedMessage) {
+        printModelSummary(trainProcessed.featureNames);
     }
 
     cout << "\nМодель обучена.\n";
+
+    if (printModelSummary && !printSummaryBeforeTrainedMessage) {
+        printModelSummary(trainProcessed.featureNames);
+    }
 
     vector<double> predictions = model->predict(testMatrix);
 
@@ -584,254 +572,10 @@ int runMachineLearning(
 }
 
 
-// Запуск kNN-классификации.
-int runKnnClassification(
-    const Dataset& dataset, const string& targetName,
-    const PreprocessingConfig& preprocessingConfig,size_t k,
-    const string& metricName,const string& weightingName) {
-    // Преобразуем категориальный целевой признак в числа.
-    const map<string, double> targetMapping = {
-        {"no", 0.0},
-        {"yes", 1.0}
-    };
-
-    // Отделяем целевой признак от остальных признаков.
-    SupervisedDataset supervisedDataset =
-        prepareSupervisedDataset(
-            dataset,
-            targetName,
-            targetMapping
-        );
-
-    // Разделяем данные на обучающую и тестовую выборки.
-    DatasetSplit split = splitDataset(
-        supervisedDataset,
-        0.2,
-        42
-    );
-
-    cout << "\nРазделение датасета завершено.\n";
-    cout << "Обучающих объектов: "
-         << split.train.targets.size() << '\n';
-    cout << "Тестовых объектов: "
-         << split.test.targets.size() << '\n';
-
-    // Обучаем предобработку только на обучающих данных.
-    DatasetPreprocessor preprocessor(preprocessingConfig);
-
-    preprocessor.fit(split.train.features);
-
-    // Применяем одинаковые параметры к обеим выборкам.
-    ProcessedDataset trainProcessed =
-        preprocessor.transform(split.train.features);
-
-    ProcessedDataset testProcessed =
-        preprocessor.transform(split.test.features);
-
-    // Преобразуем обработанные данные в матрицы.
-    Matrix trainMatrix(trainProcessed.data);
-    Matrix testMatrix(testProcessed.data);
-
-    cout << "\nПредобработка завершена.\n";
-    cout << "Количество признаков после преобразования: "
-         << trainMatrix.columns() << '\n';
-
-    // Создаём метрику расстояния.
-unique_ptr<IDistance> distance = createDistance(metricName);
-
-// Выбираем способ взвешивания.
-Weighting weighting;
-
-if (weightingName == "uniform") {
-    weighting = Weighting::Uniform;
-}
-else if (weightingName == "distance") {
-    weighting = Weighting::Distance;
-}
-else {
-    throw invalid_argument(
-        "Неизвестный способ взвешивания: " + weightingName
-    );
-}
-
-// Создаём классификатор.
-KnnClassifier model(
-    k,
-    move(distance),
-    weighting
-);
-
-cout << "\nПараметры модели:\n";
-cout << "Количество соседей: " << k << '\n';
-cout << "Метрика: " << metricName << '\n';
-cout << "Взвешивание: " << weightingName << '\n';
-
-    model.fit(
-        trainMatrix,
-        span<const double>(split.train.targets)
-    );
-
-    cout << "\nМодель kNN обучена.\n";
-
-    // Получаем прогнозы для тестовой выборки.
-    const vector<double> predictions =
-        model.predict(testMatrix);
-
-    // Выводим первые десять прогнозов.
-    const size_t outputCount = min(
-        size_t{10},
-        predictions.size()
-    );
-
-    cout << "\nРезультаты классификации:\n";
-    cout << "№ | Реальное значение | Прогноз\n";
-    cout << "--------------------------------\n";
-
-    for (size_t i = 0; i < outputCount; ++i) {
-        cout << i + 1 << " | "
-             << (split.test.targets[i] == 1.0 ? "yes" : "no")
-             << " | "
-             << (predictions[i] == 1.0 ? "yes" : "no")
-             << '\n';
-    }
-
-    return 0;
-}
-
-// Запуск kNN-регрессии.
-int runKnnRegression(
-    const Dataset& dataset,
-    const string& targetName,
-    const PreprocessingConfig& preprocessingConfig,
-    size_t k,
-    const string& metricName,
-    const string& weightingName
-) {
-    // Отделяем числовой целевой признак от остальных признаков.
-    SupervisedDataset supervisedDataset =
-        prepareSupervisedDataset(dataset, targetName);
-
-    // Разделяем данные на обучающую и тестовую выборки.
-    DatasetSplit split = splitDataset(
-        supervisedDataset,
-        0.2,
-        42
-    );
-
-    cout << "\nРазделение датасета завершено.\n";
-    cout << "Обучающих объектов: "
-         << split.train.targets.size() << '\n';
-    cout << "Тестовых объектов: "
-         << split.test.targets.size() << '\n';
-
-    // Обучаем предобработку только на обучающих данных.
-    DatasetPreprocessor preprocessor(preprocessingConfig);
-    preprocessor.fit(split.train.features);
-
-    ProcessedDataset trainProcessed =
-        preprocessor.transform(split.train.features);
-
-    ProcessedDataset testProcessed =
-        preprocessor.transform(split.test.features);
-
-    Matrix trainMatrix(trainProcessed.data);
-    Matrix testMatrix(testProcessed.data);
-
-    cout << "\nПредобработка завершена.\n";
-    cout << "Количество признаков после преобразования: "
-         << trainMatrix.columns() << '\n';
-
-    // Создаём метрику расстояния.
-    unique_ptr<IDistance> distance = createDistance(metricName);
-
-    // Выбираем способ взвешивания.
-    Weighting weighting;
-
-    if (weightingName == "uniform") {
-        weighting = Weighting::Uniform;
-    }
-    else if (weightingName == "distance") {
-        weighting = Weighting::Distance;
-    }
-    else {
-        throw invalid_argument(
-            "Неизвестный способ взвешивания: " + weightingName
-        );
-    }
-
-    // Создаём регрессор.
-    KnnRegressor model(
-        k,
-        move(distance),
-        weighting
-    );
-
-    cout << "\nПараметры модели:\n";
-    cout << "Количество соседей: " << k << '\n';
-    cout << "Метрика: " << metricName << '\n';
-    cout << "Взвешивание: " << weightingName << '\n';
-
-    model.fit(
-        trainMatrix,
-        span<const double>(split.train.targets)
-    );
-
-    cout << "\nМодель kNN-регрессии обучена.\n";
-
-    // Получаем прогнозы.
-    const vector<double> predictions =
-        model.predict(testMatrix);
-    // Рассчитываем качество регрессии.
-    double absoluteErrorSum = 0.0;
-    double squaredErrorSum = 0.0;
-
-    for (size_t i = 0; i < predictions.size(); ++i) {
-        const double error =
-            predictions[i] - split.test.targets[i];
-
-        absoluteErrorSum += abs(error);
-        squaredErrorSum += error * error;
-    }
-
-    if (predictions.empty()) {
-        throw runtime_error(
-            "Невозможно рассчитать метрики: тестовая выборка пуста"
-        );
-    }
-
-    const double mae =
-        absoluteErrorSum / predictions.size();
-
-    const double rmse =
-        sqrt(squaredErrorSum / predictions.size());
-
-    cout << "\nОценка качества регрессии:\n";
-    cout << fixed << setprecision(3);
-    cout << "MAE:  " << mae << '\n';
-    cout << "RMSE: " << rmse << '\n';
-
-    const size_t outputCount = min(
-        size_t{10},
-        predictions.size()
-    );
-
-    cout << "\nРезультаты регрессии:\n";
-    cout << "№ | Реальное значение | Прогноз\n";
-    cout << "--------------------------------\n";
-
-    cout << fixed << setprecision(2);
-
-    for (size_t i = 0; i < outputCount; ++i) {
-        cout << i + 1 << " | "
-             << split.test.targets[i] << " | "
-             << predictions[i] << '\n';
-    }
-
-    return 0;
-}
-
 int main(int argc, char* argv[]) {
-    system("chcp 65001 > nul");
+#ifdef _WIN32
+    (void)system("chcp 65001 > nul");
+#endif
      try {
 
 const string defaultInput =
@@ -860,31 +604,18 @@ options.add_options()
         cxxopts::value<string>()->default_value("minmax"))
     ("e,encode", "Способ кодирования: onehot, ordinal",
         cxxopts::value<string>()->default_value("onehot"))
-    ("knn", "Запустить режим kNN-классификации",
-        cxxopts::value<bool>()->default_value("false"))
+    ("model", "Модель: decision_stump, cart",
+        cxxopts::value<string>()->default_value(""))
     ("target", "Название целевого признака",
         cxxopts::value<string>()->default_value("y"))
-    ("neighbors", "Количество ближайших соседей",
-        cxxopts::value<size_t>()->default_value("5"))
-    ("metric", "Метрика расстояния: euclidean, manhattan, chebyshev",
-        cxxopts::value<string>()->default_value("euclidean"))
-    ("weighting", "Способ взвешивания: uniform, distance",
-        cxxopts::value<string>()->default_value("uniform"))
-    ("regression", "Запустить режим kNN-регрессии",
-        cxxopts::value<bool>()->default_value("false"))
-    ("model", "Модель: knn, nw, cart",
-        cxxopts::value<string>()->default_value(""))
     ("task", "Задача: classification или regression",
         cxxopts::value<string>()->default_value("classification"))
-    ("bandwidth", "Ширина окна Nadaraya-Watson",
-        cxxopts::value<double>()->default_value("1.0"))
     ("max-depth", "Максимальная глубина CART",
         cxxopts::value<size_t>()->default_value("5"))
     ("min-samples-split", "Минимум объектов для разбиения CART",
         cxxopts::value<size_t>()->default_value("2"))
     ("min-samples-leaf", "Минимум объектов в листе CART",
         cxxopts::value<size_t>()->default_value("1"));
-
 
 cxxopts::ParseResult arguments;
 
@@ -897,134 +628,61 @@ catch (const cxxopts::exceptions::exception& error) {
     return 1;
 }
 
-
 if (arguments.count("help")) {
     cout << options.help() << '\n';
     return 0;
 }
 
-
 const string filename = arguments["input"].as<string>();
-const filesystem::path outputPath =
-    arguments["output"].as<string>();
-
-const string fillValue = arguments["fill"].as<string>();
+const filesystem::path outputPath = arguments["output"].as<string>();
 
 PreprocessingConfig preprocessingConfig;
-
-if (!parseFillStrategy(fillValue,preprocessingConfig.numericalMissing)) {
-    cerr << "Ошибка: неизвестная стратегия заполнения: "<< fillValue << endl;
-    cerr << "Допустимые значения: mean, median, zero" << endl;
+const string fillValue = arguments["fill"].as<string>();
+if (!parseFillStrategy(fillValue, preprocessingConfig.numericalMissing)) {
+    cerr << "Ошибка: неизвестная стратегия заполнения: " << fillValue << '\n';
+    cerr << "Допустимые значения: mean, median, zero\n";
     return 1;
 }
 
-
 const string scaleValue = arguments["scale"].as<string>();
-
-if (!parseScalingStrategy(
-        scaleValue,
-        preprocessingConfig.scaling
-    )) {
-    cerr << "Ошибка: неизвестный способ масштабирования: "
-         << scaleValue << '\n';
+if (!parseScalingStrategy(scaleValue, preprocessingConfig.scaling)) {
+    cerr << "Ошибка: неизвестный способ масштабирования: " << scaleValue << '\n';
     cerr << "Допустимые значения: minmax, standard, robust\n";
     return 1;
 }
 
-
 const string encodeValue = arguments["encode"].as<string>();
-
-if (!parseEncodingStrategy(
-        encodeValue,
-        preprocessingConfig.encoding
-    )) {
-    cerr << "Ошибка: неизвестный способ кодирования: "
-         << encodeValue << '\n';
+if (!parseEncodingStrategy(encodeValue, preprocessingConfig.encoding)) {
+    cerr << "Ошибка: неизвестный способ кодирования: " << encodeValue << '\n';
     cerr << "Допустимые значения: onehot, ordinal\n";
     return 1;
 }
 
-
-int binsValue = arguments["bins"].as<int>();
-
+const int binsValue = arguments["bins"].as<int>();
 if (binsValue <= 0) {
     cerr << "Ошибка: количество интервалов должно быть больше нуля.\n";
     return 1;
 }
+const size_t binCount = static_cast<size_t>(binsValue);
 
-size_t binCount = static_cast<size_t>(binsValue);
+const CsvConfig config{ ';', "unknown", true };
+Dataset dataset;
+loadCsv(filename, dataset, config);
 
-    const CsvConfig config{ ';', "unknown", true };
-
-    Dataset dataset;
-
-    if (!loadCsv(filename, dataset, config)) {
-        return 1;
-    }
-
-
-    const string modelName =
-        arguments["model"].as<string>();
-
-    if (!modelName.empty()) {
-        return runMachineLearning(
-            dataset,
-            arguments["target"].as<string>(),
-            preprocessingConfig,
-            modelName,
-            arguments["task"].as<string>(),
-            arguments["neighbors"].as<size_t>(),
-            arguments["bandwidth"].as<double>(),
-            arguments["metric"].as<string>(),
-            arguments["weighting"].as<string>(),
-            arguments["max-depth"].as<size_t>(),
-            arguments["min-samples-split"].as<size_t>(),
-            arguments["min-samples-leaf"].as<size_t>()
-        );
-    }
-
-
-    const bool runClassification = arguments["knn"].as<bool>();
-const bool runRegression = arguments["regression"].as<bool>();
-
-if (runClassification && runRegression) {
-    cerr << "Ошибка: выберите только один режим kNN.\n";
-    return 1;
-}
-
-if (runClassification || runRegression) {
-    const string targetName =
-        arguments["target"].as<string>();
-
-    const size_t k =
-        arguments["neighbors"].as<size_t>();
-
-    const string metricName =
-        arguments["metric"].as<string>();
-
-    const string weightingName =
-        arguments["weighting"].as<string>();
-
-    if (runClassification) {
-        return runKnnClassification(
-            dataset,
-            targetName,
-            preprocessingConfig,
-            k,
-            metricName,
-            weightingName
-        );
-    }
-
-    return runKnnRegression(
+const string modelName = arguments["model"].as<string>();
+if (!modelName.empty()) {
+    return runMachineLearning(
         dataset,
-        targetName,
+        arguments["target"].as<string>(),
         preprocessingConfig,
-        k,
-        metricName,
-        weightingName
+        modelName,
+        arguments["task"].as<string>(),
+        arguments["max-depth"].as<size_t>(),
+        arguments["min-samples-split"].as<size_t>(),
+        arguments["min-samples-leaf"].as<size_t>()
     );
 }
+
 
     size_t recordCount = 0;
 
@@ -1132,56 +790,55 @@ if (runClassification || runRegression) {
 
                 ProcessedDataset processedDataset;
 
-                if (preprocessDataset(dataset,processedDataset,preprocessingConfig)) {
-                    if (saveProcessedDataset(processedDataset,outputPath.string())) {
-                        cout << "Датасет успешно сохранён: "
-                            << outputPath << '\n';
-
-                        cout << "Количество объектов: "
-                            << processedDataset.data.size() << '\n';
-
-                        cout << "Количество признаков после обработки: "
-                            << processedDataset.featureNames.size() << '\n';
-
-        filesystem::path binaryPath = outputPath;
-        binaryPath.replace_extension(".bin");
-
-        if (saveProcessedDatasetBinary(
-            processedDataset,
-            binaryPath.string()
-        )) {
-            cout << "\nБинарный файл сохранён: "
-                << binaryPath << '\n';
-
-            ProcessedDataset loadedDataset;
-
-            if (loadProcessedDatasetBinary(
-                binaryPath.string(),
-                loadedDataset
-            )) {
-                if (compareProcessedDatasets(
+                preprocessDataset(
+                    dataset,
                     processedDataset,
+                    preprocessingConfig
+                );
+                saveProcessedDataset(
+                    processedDataset,
+                    outputPath.string()
+                );
+
+                cout << "Датасет успешно сохранён: "
+                     << outputPath << '\n';
+
+                cout << "Количество объектов: "
+                     << processedDataset.data.size() << '\n';
+
+                cout << "Количество признаков после обработки: "
+                     << processedDataset.featureNames.size() << '\n';
+
+                filesystem::path binaryPath = outputPath;
+                binaryPath.replace_extension(".bin");
+
+                saveProcessedDatasetBinary(
+                    processedDataset,
+                    binaryPath.string()
+                );
+
+                cout << "\nБинарный файл сохранён: "
+                     << binaryPath << '\n';
+
+                ProcessedDataset loadedDataset;
+                loadProcessedDatasetBinary(
+                    binaryPath.string(),
                     loadedDataset
-                )) {
-                    cout << "Проверка бинарного файла пройдена успешно" ;
-                }
-                else {
+                );
+
+                if (compareProcessedDatasets(processedDataset, loadedDataset)) {
+                    cout << "Проверка бинарного файла пройдена успешно";
+                } else {
                     cout << "Ошибка: данные после загрузки отличаются" << endl;
                 }
-            }
-        }
 
-        cout << "\nРазмеры файлов:" << endl;
-
-        cout << "CSV: "
-            << filesystem::file_size(outputPath)
-            << " байт" << endl;
-
-        cout << "Binary: "
-            << filesystem::file_size(binaryPath)
-            << " байт" << endl;
-                    }
-                }
+                cout << "\nРазмеры файлов:" << endl;
+                cout << "CSV: "
+                     << filesystem::file_size(outputPath)
+                     << " байт" << endl;
+                cout << "Binary: "
+                     << filesystem::file_size(binaryPath)
+                     << " байт" << endl;
             }
 
             break;

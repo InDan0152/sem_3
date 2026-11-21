@@ -1,11 +1,11 @@
 #include "csv_loader.hpp"
 
 #include <fstream>
-#include <iostream>
 #include <string>
 #include <vector>
 #include <utility>
 #include <cstdlib>
+#include <stdexcept>
 
 using namespace std;
 
@@ -14,6 +14,7 @@ vector<string> parseCsvLine(
     const string& line,
     char delimiter
 ) {
+
     vector<string> fields;
     string field;
     bool insideQuotes = false;
@@ -39,8 +40,7 @@ vector<string> parseCsvLine(
     }
 
     if (insideQuotes) {
-        cerr << "Ошибка: не закрыта кавычка в строке CSV\n";
-        return {};
+        throw invalid_argument("CSV содержит незакрытую кавычку");
     }
 
     fields.push_back(field);
@@ -60,17 +60,16 @@ bool isNumber(const string& value) {
 }
 
 
-bool loadCsv(
+void loadCsv(
     const string& filename,
     Dataset& dataset,
     const CsvConfig& config
 ) {
+
     ifstream file(filename);
 
     if (!file.is_open()) {
-        cerr << "Ошибка: не удалось открыть CSV-файл: "
-             << filename << '\n';
-        return false;
+        throw runtime_error("Не удалось открыть CSV-файл: " + filename);
     }
 
     dataset.columns.clear();
@@ -80,17 +79,18 @@ bool loadCsv(
 
 
     if (!getline(file, line)) {
-        cerr << "Ошибка: CSV-файл пуст\n";
-        return false;
+        throw invalid_argument("CSV-файл пуст");
     }
 
     ++lineNumber;
 
-    auto firstRow = parseCsvLine(line, config.delimiter);
-
-    if (firstRow.empty()) {
-        cerr << "Ошибка: некорректная первая строка CSV\n";
-        return false;
+    vector<string> firstRow;
+    try {
+        firstRow = parseCsvLine(line, config.delimiter);
+    } catch (const invalid_argument& error) {
+        throw invalid_argument(
+            "Ошибка в строке " + to_string(lineNumber) + ": " + error.what()
+        );
     }
 
 
@@ -122,27 +122,28 @@ bool loadCsv(
             continue;
         }
 
-        auto fields = parseCsvLine(line, config.delimiter);
-
-        if (fields.empty()) {
-            cerr << "Ошибка в строке " << lineNumber
-                 << ": некорректный формат CSV\n";
-            return false;
+        vector<string> fields;
+        try {
+            fields = parseCsvLine(line, config.delimiter);
+        } catch (const invalid_argument& error) {
+            throw invalid_argument(
+                "Ошибка в строке " + to_string(lineNumber) + ": " + error.what()
+            );
         }
 
         if (fields.size() != expectedFields) {
-            cerr << "Ошибка в строке " << lineNumber
-                 << ": ожидалось полей: " << expectedFields
-                 << ", получено: " << fields.size() << '\n';
-            return false;
+            throw invalid_argument(
+                "Ошибка в строке " + to_string(lineNumber) +
+                ": ожидалось полей " + to_string(expectedFields) +
+                ", получено " + to_string(fields.size())
+            );
         }
 
         rawRows.push_back(move(fields));
     }
 
     if (file.bad()) {
-        cerr << "Ошибка при чтении CSV-файла\n";
-        return false;
+        throw runtime_error("Ошибка при чтении CSV-файла");
     }
 
 
@@ -212,9 +213,7 @@ bool loadCsv(
         else {columnSize = column.categoricalValues.size();}
 
         if (columnSize != rawRows.size()) {
-            cerr << "Ошибка: неправильная длина столбца "<< column.name << endl;
-        return false;
+            throw runtime_error("Неправильная длина столбца: " + column.name);
+        }
     }
-}
-    return true;
 }

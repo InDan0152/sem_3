@@ -112,16 +112,11 @@ void DecisionStump::fit(
     vector<size_t> objectIds(n);
     iota(objectIds.begin(), objectIds.end(), 0);
 
-    // Формируем индексы всех признаков.
-    vector<size_t> featureIds(d);
-    iota(featureIds.begin(), featureIds.end(), 0);
-
     // Используем общий компонент поиска разбиения.
     optional<Split> bestSplit = SplitFinder::findBestSplit(
         features,
         target,
         objectIds,
-        featureIds,
         criterion,
         minSamplesLeaf
     );
@@ -238,6 +233,38 @@ vector<double> DecisionStump::predict(
     }
 
     return predictions;
+}
+
+bool DecisionStump::has_split() const {
+    if (!fitted) {
+        throw ModelUsageError("Модель ещё не обучена");
+    }
+    return hasSplit;
+}
+
+double DecisionStump::left_prediction() const {
+    if (!fitted || !hasSplit) {
+        throw ModelUsageError(
+            "Предсказания листьев доступны только при наличии разбиения"
+        );
+    }
+    return leftPrediction;
+}
+
+double DecisionStump::right_prediction() const {
+    if (!fitted || !hasSplit) {
+        throw ModelUsageError(
+            "Предсказания листьев доступны только при наличии разбиения"
+        );
+    }
+    return rightPrediction;
+}
+
+double DecisionStump::constant_prediction() const {
+    if (!fitted) {
+        throw ModelUsageError("Модель ещё не обучена");
+    }
+    return constantPrediction;
 }
 
 size_t DecisionStump::split_feature() const {

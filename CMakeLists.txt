@@ -3,6 +3,24 @@ cmake_minimum_required(VERSION 3.24)
 
 project(lab_1_data_processing LANGUAGES CXX)
 
+# Генерация документации является необязательной и не входит в обычную сборку.
+find_package(Doxygen QUIET)
+
+if(DOXYGEN_FOUND)
+    configure_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/docs/Doxyfile.in
+        ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile
+        @ONLY
+    )
+
+    add_custom_target(docs
+        COMMAND ${DOXYGEN_EXECUTABLE} ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Generating HTML documentation with Doxygen"
+        VERBATIM
+    )
+endif()
+
 # Подключение библиотеки cxxopts
 include(FetchContent)
 
@@ -43,7 +61,7 @@ if(MSVC)
         INTERFACE
         "$<$<CONFIG:Debug>:/fsanitize=address>"
     )
-elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT WIN32)
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     # AddressSanitizer и UndefinedBehaviorSanitizer
     target_compile_options(
         project_options
@@ -69,11 +87,7 @@ add_library(lab1_core
     src/supervised_dataset.cpp
     src/dataset_splitter.cpp
     src/matrix.cpp
-    src/distance.cpp
-    src/neighbor_search.cpp
-    src/knn.cpp
     src/decision_stump.cpp
-    src/nadaraya_watson.cpp
     src/split_finder.cpp
     src/cart.cpp
 )
@@ -143,19 +157,6 @@ add_test(
     COMMAND matrix_slice_tests
 )
 
-add_executable(nadaraya_watson_tests
-    test/nadaraya_watson_tests.cpp
-)
-
-target_link_libraries(nadaraya_watson_tests
-    PRIVATE lab1_core
-)
-
-add_test(
-    NAME nadaraya_watson_tests
-    COMMAND nadaraya_watson_tests
-)
-
 add_executable(cart_tests
     test/cart_tests.cpp
 )
@@ -181,5 +182,13 @@ target_link_libraries(
 add_test(
     NAME cart_audit_tests
     COMMAND cart_audit_tests
+)
+
+add_test(
+    NAME decision_stump_cli_tests
+    COMMAND ${CMAKE_COMMAND}
+        -DAPP=$<TARGET_FILE:lab1>
+        -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/test/decision_stump_cli_tests.cmake
 )
 endif()

@@ -12,7 +12,7 @@ vector<string> parseCsvLine(
     char delimiter
 );
 
-bool loadCsv(
+void loadCsv(
     const string& filename,
     Dataset& dataset,
     const CsvConfig& config

@@ -4,12 +4,10 @@
 #include "supervised_dataset.hpp"
 #include "dataset_splitter.hpp"
 #include "matrix.hpp"
-#include "distance.hpp"
-#include "neighbor_search.hpp"
-#include "knn.hpp"
 #include "exceptions.hpp"
 
 #include <iostream>
+#include <sstream>
 #include <fstream>
 #include <vector>
 #include <string>
@@ -20,14 +18,47 @@
 
 using namespace std;
 
+// Вспомогательные функции тестов: ожидаемые исключения проверяются отдельно.
+bool tryLoadCsv(const string& filename, Dataset& dataset, const CsvConfig& config) {
+    try {
+        loadCsv(filename, dataset, config);
+        return true;
+    } catch (const exception&) {
+        return false;
+    }
+}
+
+bool tryPreprocess(
+    const Dataset& dataset,
+    ProcessedDataset& processedDataset,
+    const PreprocessingConfig& config = {}
+) {
+    try {
+        preprocessDataset(dataset, processedDataset, config);
+        return true;
+    } catch (const exception&) {
+        return false;
+    }
+}
+
+
 // Тест 1. Разбор CSV
 bool testCsvParsing() {
-    vector<string> result = parseCsvLine("25;unknown;admin.", ';');
+    const vector<string> result = parseCsvLine("25;unknown;admin.", ';');
+
+    bool malformedThrows = false;
+    try {
+        (void)parseCsvLine("25;\"admin.", ';');
+    } catch (const invalid_argument& error) {
+        malformedThrows =
+            string(error.what()).find("незакрытую кавычку") != string::npos;
+    }
 
     return result.size() == 3 &&
            result[0] == "25" &&
            result[1] == "unknown" &&
-           result[2] == "admin.";
+           result[2] == "admin." &&
+           malformedThrows;
 }
 
 // Тест 2. Определение типов признаков
@@ -45,7 +76,7 @@ bool testFeatureTypes() {
     Dataset dataset;
     CsvConfig config;
 
-    if (!loadCsv(filename, dataset, config)) return false;
+    if (!tryLoadCsv(filename, dataset, config)) return false;
 
     return dataset.columns.size() == 2 &&
            dataset.columns[0].type == FeatureType::Numerical &&
@@ -76,19 +107,15 @@ bool testOneHotEncoding() {
     Column column;
     column.name = "color";
     column.type = FeatureType::Categorical;
-
     column.categoricalValues = {
         string("red"),
         string("blue"),
         nullopt
     };
-
     dataset.columns.push_back(column);
 
     ProcessedDataset processedDataset;
-
-    if (!preprocessDataset(dataset, processedDataset))
-        return false;
+    if (!tryPreprocess(dataset, processedDataset)) return false;
 
     if (processedDataset.data.size() != 3 ||
         processedDataset.featureNames.size() != 3) {
@@ -100,27 +127,18 @@ bool testOneHotEncoding() {
         "color_blue",
         "color_red"
     };
-
-    if (processedDataset.featureNames != expectedNames)
-        return false;
+    if (processedDataset.featureNames != expectedNames) return false;
 
     const vector<vector<double>> expectedData = {
         {0.0, 0.0, 1.0},
         {0.0, 1.0, 0.0},
         {1.0, 0.0, 0.0}
     };
-
     return processedDataset.data == expectedData;
 }
 bool testBinarySaveLoad() {
     ProcessedDataset original;
-
-    original.featureNames = {
-        "age",
-        "job_admin.",
-        "job_services"
-    };
-
+    original.featureNames = {"age", "job_admin.", "job_services"};
     original.data = {
         {0.0, 1.0, 0.0},
         {0.5, 0.0, 1.0},
@@ -128,37 +146,87 @@ bool testBinarySaveLoad() {
     };
 
     const string filename = "test_binary.bin";
-
-    if (!saveProcessedDatasetBinary(original, filename))
-        return false;
-
     ProcessedDataset loaded;
 
-    if (!loadProcessedDatasetBinary(filename, loaded))
+    try {
+        saveProcessedDatasetBinary(original, filename);
+        loadProcessedDatasetBinary(filename, loaded);
+    } catch (const exception&) {
         return false;
+    }
 
     return compareProcessedDatasets(original, loaded);
 }
 
 bool testInvalidCsv() {
     const string filename = "test_invalid.csv";
-
-    ofstream file(filename);
-
-    if (!file.is_open()) {
-        return false;
+    {
+        ofstream file(filename);
+        if (!file.is_open()) return false;
+        file << "age;job;marital\n";
+        file << "25;admin.\n";
     }
-
-    file << "age;job;marital\n";
-    file << "25;admin.\n"; // Не хватает одного поля
-
-    file.close();
 
     Dataset dataset;
     CsvConfig config;
+    ostringstream capturedOutput;
+    streambuf* previousErrorBuffer = cerr.rdbuf(capturedOutput.rdbuf());
 
-    // Загрузчик должен обнаружить ошибку.
-    return !loadCsv(filename, dataset, config);
+    bool invalidFieldCountReported = false;
+    try {
+        loadCsv(filename, dataset, config);
+    } catch (const invalid_argument& error) {
+        invalidFieldCountReported =
+            string(error.what()).find("строке 2") != string::npos;
+    }
+
+    {
+        ofstream malformedQuoteFile(filename, ios::trunc);
+        malformedQuoteFile << "age;job\n";
+        malformedQuoteFile << "25;\"admin.\n";
+        malformedQuoteFile.close();
+    }
+
+    bool malformedQuoteReported = false;
+    try {
+        loadCsv(filename, dataset, config);
+    } catch (const invalid_argument& error) {
+        const string message = error.what();
+        malformedQuoteReported =
+            message.find("строке 2") != string::npos &&
+            message.find("незакрытую кавычку") != string::npos;
+    }
+
+    cerr.rdbuf(previousErrorBuffer);
+
+    return invalidFieldCountReported &&
+           malformedQuoteReported &&
+           capturedOutput.str().empty();
+}
+
+bool testPreprocessingErrorReporting() {
+    Dataset dataset;
+    Column emptyNumericalColumn;
+    emptyNumericalColumn.name = "empty_value";
+    emptyNumericalColumn.type = FeatureType::Numerical;
+    emptyNumericalColumn.numericalValues = {nullopt};
+    dataset.columns.push_back(emptyNumericalColumn);
+
+    ProcessedDataset processedDataset;
+    PreprocessingConfig config;
+    ostringstream capturedOutput;
+    streambuf* previousErrorBuffer = cerr.rdbuf(capturedOutput.rdbuf());
+
+    bool exceptionReported = false;
+    try {
+        preprocessDataset(dataset, processedDataset, config);
+    } catch (const invalid_argument& error) {
+        exceptionReported =
+            string(error.what()).find("empty_value") != string::npos;
+    }
+
+    cerr.rdbuf(previousErrorBuffer);
+    return exceptionReported && capturedOutput.str().empty();
 }
 
 bool testScalingStrategies() {
@@ -183,7 +251,7 @@ bool testScalingStrategies() {
 
         ProcessedDataset result;
 
-        if (!preprocessDataset(dataset, result, config))
+        if (!tryPreprocess(dataset, result, config))
             return false;
 
         if (result.data.size() != 3 ||
@@ -233,7 +301,7 @@ bool testMeanImputation() {
 
     ProcessedDataset result;
 
-    if (!preprocessDataset(dataset, result, config))
+    if (!tryPreprocess(dataset, result, config))
         return false;
 
     return result.data.size() == 4 &&
@@ -261,7 +329,7 @@ bool testOrdinalEncoding() {
 
     ProcessedDataset result;
 
-    if (!preprocessDataset(dataset, result, config))
+    if (!tryPreprocess(dataset, result, config))
         return false;
 
     const vector<vector<double>> expected = {
@@ -588,588 +656,144 @@ bool testMatrixSpanAccess() {
 
     // Изменяем элемент через span.
     firstRow[1] = 50.0;
+    span<double> checkedRow = matrix.at(1);
+    checkedRow[0] = 40.0;
 
     // Проверяем, что изменилась исходная матрица.
     return matrix[0][0] == 10.0 &&
            matrix[0][1] == 50.0 &&
+           matrix[1][0] == 40.0 &&
            matrix[1][2] == 30.0 &&
            firstRow.size() == 3;
 }
 
-// Тест Matrix 5. Проверка выхода за границы через at().
+bool testMatrixConstSpanAccess() {
+    Matrix matrix({
+        {1.0, 2.0},
+        {3.0, 4.0}
+    });
+    const Matrix& constMatrix = matrix;
+
+    span<const double> row = constMatrix[1];
+    span<const double> checkedRow = constMatrix.at(0);
+    return row.size() == 2 && row[0] == 3.0 && row[1] == 4.0 &&
+           checkedRow.size() == 2 && checkedRow[0] == 1.0;
+}
+
+bool testMatrixZeroColumns() {
+    Matrix matrix(2, 0);
+    const Matrix& constMatrix = matrix;
+
+    span<double> mutableRow = matrix[0];
+    span<const double> constRow = constMatrix[1];
+    span<double> checkedMutableRow = matrix.at(1);
+    span<const double> checkedConstRow = constMatrix.at(0);
+
+    bool mutableAtThrows = false;
+    bool constAtThrows = false;
+    try {
+        (void)matrix.at(2);
+    }
+    catch (const out_of_range&) {
+        mutableAtThrows = true;
+    }
+    try {
+        (void)constMatrix.at(2);
+    }
+    catch (const out_of_range&) {
+        constAtThrows = true;
+    }
+
+    return mutableRow.empty() && constRow.empty() &&
+           checkedMutableRow.empty() && checkedConstRow.empty() &&
+           mutableAtThrows && constAtThrows;
+}
+
+bool testMatrixColumnMajorSpanErrors() {
+    Matrix matrix(
+        {{1.0, 2.0}, {3.0, 4.0}},
+        MatrixLayout::ColumnMajor
+    );
+    const Matrix& constMatrix = matrix;
+
+    bool mutableOperatorThrows = false;
+    bool constOperatorThrows = false;
+    bool mutableAtThrows = false;
+    bool constAtThrows = false;
+
+    try {
+        (void)matrix[0];
+    }
+    catch (const NonContiguousSliceError&) {
+        mutableOperatorThrows = true;
+    }
+
+    try {
+        (void)constMatrix[0];
+    }
+    catch (const NonContiguousSliceError&) {
+        constOperatorThrows = true;
+    }
+
+    try {
+        (void)matrix.at(0);
+    }
+    catch (const NonContiguousSliceError&) {
+        mutableAtThrows = true;
+    }
+
+    try {
+        (void)constMatrix.at(0);
+    }
+    catch (const NonContiguousSliceError&) {
+        constAtThrows = true;
+    }
+
+    return mutableOperatorThrows && constOperatorThrows &&
+           mutableAtThrows && constAtThrows;
+}
+
+// at(row) проверяет границы раньше, чем проверяет непрерывность строки.
 bool testMatrixOutOfRange() {
     Matrix matrix(2, 3);
+    const Matrix& constMatrix = matrix;
+
+    bool mutableThrows = false;
+    bool constThrows = false;
 
     try {
         matrix.at(2);
     }
     catch (const out_of_range&) {
-        return true;
+        mutableThrows = true;
     }
-
-    return false;
-}
-
-// Тест Distance 1. Евклидово расстояние.
-bool testEuclideanDistance() {
-    EuclideanDistance distance;
-
-    vector<double> a = {1.0, 2.0, 3.0};
-    vector<double> b = {4.0, 6.0, 3.0};
-
-    double result = distance.compute(a, b);
-
-    return abs(result - 5.0) < 1e-9;
-}
-
-// Тест Distance 2. Манхэттенское расстояние.
-bool testManhattanDistance() {
-    ManhattanDistance distance;
-
-    vector<double> a = {1.0, 2.0, 3.0};
-    vector<double> b = {4.0, 6.0, 3.0};
-
-    double result = distance.compute(a, b);
-
-    return abs(result - 7.0) < 1e-9;
-}
-
-// Тест Distance 3. Расстояние Чебышёва.
-bool testChebyshevDistance() {
-    ChebyshevDistance distance;
-
-    vector<double> a = {1.0, 2.0, 3.0};
-    vector<double> b = {4.0, 6.0, 3.0};
-
-    double result = distance.compute(a, b);
-
-    return abs(result - 4.0) < 1e-9;
-}
-
-// Тест Distance 4. Проверка несовпадающих размерностей.
-bool testDistanceDimensionMismatch() {
-    EuclideanDistance distance;
-
-    vector<double> a = {1.0, 2.0, 3.0};
-    vector<double> b = {4.0, 6.0};
 
     try {
-        distance.compute(a, b);
+        constMatrix.at(2);
     }
-    catch (const invalid_argument&) {
-        return true;
+    catch (const out_of_range&) {
+        constThrows = true;
     }
 
-    return false;
-}
-
-// Тест Neighbor Search 1. Поиск двух ближайших соседей.
-bool testKNearestNeighbors() {
-    vector<vector<double>> values = {
-        {0.0},
-        {2.0},
-        {5.0},
-        {9.0}
-    };
-
-    Matrix trainFeatures(values);
-
-    vector<double> query = {3.0};
-
-    EuclideanDistance distance;
-
-    vector<Neighbor> neighbors = findKNearestNeighbors(
-        trainFeatures,
-        query,
-        2,
-        distance
-    );
-
-    return neighbors.size() == 2 &&
-           neighbors[0].index == 1 &&
-           neighbors[1].index == 2 &&
-           abs(neighbors[0].distance - 1.0) < 1e-9 &&
-           abs(neighbors[1].distance - 2.0) < 1e-9;
-}
-
-// Тест Neighbor Search 2. Детерминированный порядок при равных расстояниях.
-bool testKNearestNeighborsEqualDistances() {
-    vector<vector<double>> values = {
-        {-1.0},
-        {1.0},
-        {3.0}
-    };
-
-    Matrix trainFeatures(values);
-
-    vector<double> query = {0.0};
-
-    EuclideanDistance distance;
-
-    vector<Neighbor> neighbors = findKNearestNeighbors(
-        trainFeatures,
-        query,
-        2,
-        distance
-    );
-
-    return neighbors.size() == 2 &&
-           neighbors[0].index == 0 &&
-           neighbors[1].index == 1 &&
-           abs(neighbors[0].distance - 1.0) < 1e-9 &&
-           abs(neighbors[1].distance - 1.0) < 1e-9;
-}
-
-// Тест Neighbor Search 3. Проверка k = 0.
-bool testKNearestNeighborsZeroK() {
-    vector<vector<double>> values = {
-        {1.0},
-        {2.0}
-    };
-
-    Matrix trainFeatures(values);
-
-    vector<double> query = {1.5};
-
-    EuclideanDistance distance;
-
+    Matrix columnMajor(2, 3, MatrixLayout::ColumnMajor);
+    const Matrix& constColumnMajor = columnMajor;
+    bool columnMajorThrowsForInvalidRow = false;
+    bool constColumnMajorThrowsForInvalidRow = false;
     try {
-        findKNearestNeighbors(
-            trainFeatures,
-            query,
-            0,
-            distance
-        );
+        columnMajor.at(2);
     }
-    catch (const invalid_argument&) {
-        return true;
+    catch (const out_of_range&) {
+        columnMajorThrowsForInvalidRow = true;
     }
-
-    return false;
-}
-
-// Тест Neighbor Search 4. Проверка k больше количества объектов.
-bool testKNearestNeighborsTooLargeK() {
-    vector<vector<double>> values = {
-        {1.0},
-        {2.0}
-    };
-
-    Matrix trainFeatures(values);
-
-    vector<double> query = {1.5};
-
-    EuclideanDistance distance;
-
     try {
-        findKNearestNeighbors(
-            trainFeatures,
-            query,
-            3,
-            distance
-        );
+        constColumnMajor.at(2);
     }
-    catch (const invalid_argument&) {
-        return true;
+    catch (const out_of_range&) {
+        constColumnMajorThrowsForInvalidRow = true;
     }
 
-    return false;
-}
-
-// Тест Neighbor Search 5. Несовпадение размерностей.
-bool testKNearestNeighborsDimensionMismatch() {
-    vector<vector<double>> values = {
-        {1.0, 2.0},
-        {3.0, 4.0}
-    };
-
-    Matrix trainFeatures(values);
-
-    vector<double> query = {1.0};
-
-    EuclideanDistance distance;
-
-    try {
-        findKNearestNeighbors(
-            trainFeatures,
-            query,
-            1,
-            distance
-        );
-    }
-    catch (const invalid_argument&) {
-        return true;
-    }
-
-    return false;
-}
-
-
-// Тест kNN 1. Регрессия с одним соседом.
-bool testKnnRegressorK1() {
-    Matrix features({
-        {0.0},
-        {2.0},
-        {5.0}
-    });
-
-    vector<double> targets = {10.0, 20.0, 30.0};
-
-    KnnRegressor model(
-        1,
-        make_unique<EuclideanDistance>()
-    );
-
-    model.fit(features, targets);
-
-    vector<double> predictions = model.predict(features);
-
-    return predictions.size() == 3 &&
-           abs(predictions[0] - 10.0) < 1e-9 &&
-           abs(predictions[1] - 20.0) < 1e-9 &&
-           abs(predictions[2] - 30.0) < 1e-9;
-}
-
-// Тест kNN 2. Регрессия с равными весами.
-bool testKnnRegressorUniform() {
-    vector<vector<double>> trainValues = {
-        {0.0},
-        {3.0}
-    };
-    Matrix trainFeatures(trainValues);
-
-    vector<double> targets = {0.0, 12.0};
-
-    vector<vector<double>> testValues = {
-        {1.0}
-    };
-    Matrix testFeatures(testValues);
-
-
-    KnnRegressor model(
-        2,
-        make_unique<EuclideanDistance>(),
-        Weighting::Uniform
-    );
-
-    model.fit(trainFeatures, targets);
-
-    vector<double> predictions = model.predict(testFeatures);
-
-    return predictions.size() == 1 &&
-           abs(predictions[0] - 6.0) < 1e-9;
-}
-
-// Тест kNN 3. Регрессия с обратным взвешиванием расстояния.
-bool testKnnRegressorDistanceWeighting() {
-    vector<vector<double>> trainValues = {
-        {0.0},
-        {3.0}
-    };
-    Matrix trainFeatures(trainValues);
-
-    vector<double> targets = {0.0, 12.0};
-
-    vector<vector<double>> testValues = {
-        {1.0}
-    };
-    Matrix testFeatures(testValues);
-
-    KnnRegressor model(
-        2,
-        make_unique<EuclideanDistance>(),
-        Weighting::Distance
-    );
-
-    model.fit(trainFeatures, targets);
-
-    vector<double> predictions = model.predict(testFeatures);
-
-    // Расстояния: 1 и 2.
-    // Веса: 1 и 0.5.
-    // Ответ: (0 * 1 + 12 * 0.5) / 1.5 = 4.
-    return predictions.size() == 1 &&
-           abs(predictions[0] - 4.0) < 1e-9;
-}
-
-// Тест kNN 4. Классификация.
-bool testKnnClassifier() {
-    Matrix trainFeatures({
-        {0.0},
-        {2.0},
-        {4.0}
-    });
-
-    vector<double> targets = {1.0, 0.0, 0.0};
-
-    Matrix testFeatures({
-        {3.0}
-    });
-
-    KnnClassifier model(
-        3,
-        make_unique<EuclideanDistance>()
-    );
-
-    model.fit(trainFeatures, targets);
-
-    vector<double> predictions = model.predict(testFeatures);
-
-    return predictions.size() == 1 &&
-           predictions[0] == 0.0;
-}
-
-// Тест kNN 5. Обработка нулевого расстояния.
-bool testKnnZeroDistance() {
-    vector<vector<double>> trainValues = {
-        {0.0},
-        {2.0}
-    };
-    Matrix trainFeatures(trainValues);
-
-    vector<double> targets = {10.0, 20.0};
-
-    vector<vector<double>> testValues = {
-        {0.0}
-    };
-    Matrix testFeatures(testValues);
-
-    KnnRegressor model(
-        2,
-        make_unique<EuclideanDistance>(),
-        Weighting::Distance
-    );
-
-    model.fit(trainFeatures, targets);
-
-    vector<double> predictions = model.predict(testFeatures);
-
-    // Совпавший объект должен иметь единственное влияние на ответ.
-    return predictions.size() == 1 &&
-           abs(predictions[0] - 10.0) < 1e-9;
-}
-
-
-// Тест Exception 1. Несовпадение размерностей в метрике.
-bool testDimensionMismatchException() {
-    EuclideanDistance distance;
-
-    vector<double> a = {1.0, 2.0};
-    vector<double> b = {1.0};
-
-    try {
-        distance.compute(a, b);
-    }
-    catch (const DimensionMismatchError&) {
-        return true;
-    }
-    catch (...) {
-        return false;
-    }
-
-    return false;
-}
-
-// Тест Exception 2. Некорректное количество соседей.
-bool testInvalidKException() {
-    try {
-        KnnRegressor model(
-            0,
-            make_unique<EuclideanDistance>()
-        );
-    }
-    catch (const InvalidParameterError&) {
-        return true;
-    }
-    catch (...) {
-        return false;
-    }
-
-    return false;
-}
-
-// Тест Exception 3. Отсутствующая метрика.
-bool testNullDistanceException() {
-    try {
-        KnnRegressor model(
-            1,
-            nullptr
-        );
-    }
-    catch (const InvalidParameterError&) {
-        return true;
-    }
-    catch (...) {
-        return false;
-    }
-
-    return false;
-}
-
-// Тест Exception 4. Предсказание до обучения.
-bool testPredictBeforeFitException() {
-    KnnRegressor model(
-        1,
-        make_unique<EuclideanDistance>()
-    );
-
-    Matrix testFeatures(1, 2);
-
-    try {
-        model.predict(testFeatures);
-    }
-    catch (const ModelUsageError&) {
-        return true;
-    }
-    catch (...) {
-        return false;
-    }
-
-    return false;
-}
-
-// Тест Exception 5. Обучение на пустой выборке.
-bool testEmptyTrainingDataException() {
-    KnnRegressor model(
-        1,
-        make_unique<EuclideanDistance>()
-    );
-
-    Matrix trainFeatures(0, 2);
-    vector<double> targets;
-
-    try {
-        model.fit(trainFeatures, targets);
-    }
-    catch (const InvalidParameterError&) {
-        return true;
-    }
-    catch (...) {
-        return false;
-    }
-
-    return false;
-}
-
-// Тест Exception 6. Несовпадение количества объектов и ответов.
-bool testTargetSizeMismatchException() {
-    KnnRegressor model(
-        1,
-        make_unique<EuclideanDistance>()
-    );
-
-    Matrix trainFeatures(2, 2);
-    vector<double> targets = {10.0};
-
-    try {
-        model.fit(trainFeatures, targets);
-    }
-    catch (const DimensionMismatchError&) {
-        return true;
-    }
-    catch (...) {
-        return false;
-    }
-
-    return false;
-}
-
-// Тест Exception 7. Несовпадение признаков при предсказании.
-bool testPredictionDimensionMismatchException() {
-    KnnRegressor model(
-        1,
-        make_unique<EuclideanDistance>()
-    );
-
-    Matrix trainFeatures(2, 2);
-    vector<double> targets = {10.0, 20.0};
-
-    model.fit(trainFeatures, targets);
-
-    Matrix testFeatures(1, 3);
-
-    try {
-        model.predict(testFeatures);
-    }
-    catch (const DimensionMismatchError&) {
-        return true;
-    }
-    catch (...) {
-        return false;
-    }
-
-    return false;
-}
-
-
-// Тест Neighbor Search 6.
-// Сравнение поиска через кучу с полной сортировкой.
-bool testKNearestNeighborsAgainstFullSort() {
-    vector<vector<double>> values = {
-        {0.0, 0.0},
-        {1.0, 1.0},
-        {2.0, 2.0},
-        {-1.0, -1.0},
-        {3.0, 3.0},
-        {1.0, -1.0},
-        {-1.0, 1.0},
-        {5.0, 5.0}
-    };
-
-    Matrix trainFeatures(values);
-
-    vector<double> query = {0.0, 0.0};
-
-    EuclideanDistance distance;
-
-    // Независимо вычисляем расстояния до всех объектов.
-    vector<Neighbor> reference;
-
-    for (size_t i = 0; i < trainFeatures.rows(); ++i) {
-        double currentDistance =
-            distance.compute(trainFeatures[i], query);
-
-        reference.push_back({currentDistance, i});
-    }
-
-    // Полная сортировка используется только в тесте.
-    sort(
-        reference.begin(),
-        reference.end(),
-        [](const Neighbor& a, const Neighbor& b) {
-            if (a.distance != b.distance) {
-                return a.distance < b.distance;
-            }
-
-            return a.index < b.index;
-        }
-    );
-
-    // Проверяем результаты для разных значений k.
-    for (size_t k = 1; k <= trainFeatures.rows(); ++k) {
-        vector<Neighbor> actual = findKNearestNeighbors(
-            trainFeatures,
-            query,
-            k,
-            distance
-        );
-
-        if (actual.size() != k) {
-            return false;
-        }
-
-        for (size_t i = 0; i < k; ++i) {
-            if (actual[i].index != reference[i].index) {
-                return false;
-            }
-
-            if (abs(actual[i].distance - reference[i].distance) > 1e-9) {
-                return false;
-            }
-        }
-    }
-
-    return true;
+    return mutableThrows && constThrows && columnMajorThrowsForInvalidRow &&
+           constColumnMajorThrowsForInvalidRow;
 }
 
 int main() {
@@ -1210,6 +834,12 @@ int main() {
     }
 
     cout << "Тест некорректного CSV пройден\n";
+
+    if (!testPreprocessingErrorReporting()) {
+        cerr << "Тест передачи ошибок предобработки не пройден\n";
+        return 1;
+    }
+    cout << "Тест передачи ошибок предобработки пройден\n";
 
     if (!testScalingStrategies()) {
     cerr << "Тест масштабирования не пройден\n";
@@ -1304,152 +934,29 @@ int main() {
     }
     cout << "Тест доступа через span пройден\n";
 
+    if (!testMatrixConstSpanAccess()) {
+        cerr << "Тест константного доступа через span не пройден\n";
+        return 1;
+    }
+    cout << "Тест константного доступа через span пройден\n";
+
+    if (!testMatrixZeroColumns()) {
+        cerr << "Тест матрицы с нулём столбцов не пройден\n";
+        return 1;
+    }
+    cout << "Тест матрицы с нулём столбцов пройден\n";
+
+    if (!testMatrixColumnMajorSpanErrors()) {
+        cerr << "Тест span для ColumnMajor не пройден\n";
+        return 1;
+    }
+    cout << "Тест span для ColumnMajor пройден\n";
+
     if (!testMatrixOutOfRange()) {
         cerr << "Тест выхода за границы матрицы не пройден\n";
         return 1;
     }
     cout << "Тест выхода за границы матрицы пройден\n";
-
-        // Тесты метрик расстояния.
-
-    if (!testEuclideanDistance()) {
-        cerr << "Тест евклидова расстояния не пройден\n";
-        return 1;
-    }
-    cout << "Тест евклидова расстояния пройден\n";
-
-    if (!testManhattanDistance()) {
-        cerr << "Тест манхэттенского расстояния не пройден\n";
-        return 1;
-    }
-    cout << "Тест манхэттенского расстояния пройден\n";
-
-    if (!testChebyshevDistance()) {
-        cerr << "Тест расстояния Чебышёва не пройден\n";
-        return 1;
-    }
-    cout << "Тест расстояния Чебышёва пройден\n";
-
-    if (!testDistanceDimensionMismatch()) {
-        cerr << "Тест несовпадающих размерностей не пройден\n";
-        return 1;
-    }
-    cout << "Тест несовпадающих размерностей пройден\n";
-
-        // Тесты поиска ближайших соседей.
-
-    if (!testKNearestNeighbors()) {
-        cerr << "Тест поиска ближайших соседей не пройден\n";
-        return 1;
-    }
-    cout << "Тест поиска ближайших соседей пройден\n";
-
-    if (!testKNearestNeighborsEqualDistances()) {
-        cerr << "Тест равных расстояний не пройден\n";
-        return 1;
-    }
-    cout << "Тест равных расстояний пройден\n";
-
-    if (!testKNearestNeighborsZeroK()) {
-        cerr << "Тест нулевого количества соседей не пройден\n";
-        return 1;
-    }
-    cout << "Тест нулевого количества соседей пройден\n";
-
-    if (!testKNearestNeighborsTooLargeK()) {
-        cerr << "Тест слишком большого количества соседей не пройден\n";
-        return 1;
-    }
-    cout << "Тест слишком большого количества соседей пройден\n";
-
-    if (!testKNearestNeighborsDimensionMismatch()) {
-        cerr << "Тест размерностей при поиске соседей не пройден\n";
-        return 1;
-    }
-    cout << "Тест размерностей при поиске соседей пройден\n";
-
-
-    // Тесты kNN.
-
-    if (!testKnnRegressorK1()) {
-        cerr << "Тест регрессии kNN при k = 1 не пройден\n";
-        return 1;
-    }
-    cout << "Тест регрессии kNN при k = 1 пройден\n";
-
-    if (!testKnnRegressorUniform()) {
-        cerr << "Тест регрессии kNN с равными весами не пройден\n";
-        return 1;
-    }
-    cout << "Тест регрессии kNN с равными весами пройден\n";
-
-    if (!testKnnRegressorDistanceWeighting()) {
-        cerr << "Тест взвешенной регрессии kNN не пройден\n";
-        return 1;
-    }
-    cout << "Тест взвешенной регрессии kNN пройден\n";
-
-    if (!testKnnClassifier()) {
-        cerr << "Тест классификации kNN не пройден\n";
-        return 1;
-    }
-    cout << "Тест классификации kNN пройден\n";
-
-    if (!testKnnZeroDistance()) {
-        cerr << "Тест нулевого расстояния kNN не пройден\n";
-        return 1;
-    }
-    cout << "Тест нулевого расстояния kNN пройден\n";
-
-        if (!testDimensionMismatchException()) {
-    cerr << "Тест исключения несовпадения размерностей не пройден\n";
-    return 1;
-}
-cout << "Тест исключения несовпадения размерностей пройден\n";
-
-if (!testInvalidKException()) {
-    cerr << "Тест исключения некорректного k не пройден\n";
-    return 1;
-}
-cout << "Тест исключения некорректного k пройден\n";
-
-if (!testNullDistanceException()) {
-    cerr << "Тест исключения отсутствующей метрики не пройден\n";
-    return 1;
-}
-cout << "Тест исключения отсутствующей метрики пройден\n";
-
-if (!testPredictBeforeFitException()) {
-    cerr << "Тест исключения предсказания до обучения не пройден\n";
-    return 1;
-}
-cout << "Тест исключения предсказания до обучения пройден\n";
-
-if (!testEmptyTrainingDataException()) {
-    cerr << "Тест исключения пустой обучающей выборки не пройден\n";
-    return 1;
-}
-cout << "Тест исключения пустой обучающей выборки пройден\n";
-
-if (!testTargetSizeMismatchException()) {
-    cerr << "Тест исключения несовпадения размеров target не пройден\n";
-    return 1;
-}
-cout << "Тест исключения несовпадения размеров target пройден\n";
-
-if (!testPredictionDimensionMismatchException()) {
-    cerr << "Тест исключения размерностей при предсказании не пройден\n";
-    return 1;
-}
-cout << "Тест исключения размерностей при предсказании пройден\n";
-
-// Сравнение поиска через кучу с полной сортировкой.
-if (!testKNearestNeighborsAgainstFullSort()) {
-    cerr << "Тест сравнения поиска соседей с полной сортировкой не пройден\n";
-    return 1;
-}
-cout << "Тест сравнения поиска соседей с полной сортировкой пройден\n";
-
 
     cout << "\nВсе тесты пройдены\n";
     return 0;

@@ -10,13 +10,23 @@
 
 using namespace std;
 
-// Ось матричного среза.
+/** @brief Ось матрицы, вдоль которой построен срез. */
 enum class SliceAxis {
-    Row,
-    Column
+    Row,    /**< Срез строки. */
+    Column /**< Срез столбца. */
 };
 
-// Невладеющий срез элементов матрицы.
+/**
+ * @brief Невладеющее представление элементов строки или столбца матрицы.
+ *
+ * Срез хранит указатель, длину и шаг, но не владеет данными. Его срок жизни не
+ * должен превышать срок жизни исходного буфера. При RowMajor строки, а при ColumnMajor
+ * столбцы хранятся непрерывно. Непрерывность конкретного среза сообщает
+ * is_contiguous(); неплотный срез можно читать по индексу, но нельзя
+ * представить span без копирования.
+ *
+ * @tparam T Тип элемента; const T задаёт срез только для чтения.
+ */
 template <typename T>
 class MatrixSlice {
 private:
@@ -26,9 +36,10 @@ private:
     SliceAxis sliceAxis = SliceAxis::Row;
 
 public:
+    /** @brief Создаёт пустой срез. */
     MatrixSlice() noexcept = default;
 
-    // Создание среза.
+    /** @brief Создаёт срез с указанными данными, размером, шагом и осью. */
     MatrixSlice(
         T* data,
         size_t size,
@@ -51,42 +62,45 @@ public:
         }
     }
 
-    // Количество элементов.
+    /** @brief Возвращает число элементов среза. */
     size_t size() const noexcept {
         return elementCount;
     }
 
-    // Проверка пустоты.
+    /** @brief Проверяет, не содержит ли срез элементов. */
     bool empty() const noexcept {
         return elementCount == 0;
     }
 
-    // Шаг между элементами.
+    /** @brief Возвращает шаг между соседними элементами в исходной матрице. */
     size_t stride() const noexcept {
         return elementStride;
     }
 
-    // Ось среза.
+    /** @brief Возвращает ось среза. */
     SliceAxis axis() const noexcept {
         return sliceAxis;
     }
 
-    // Проверка непрерывного расположения элементов.
+    /** @brief Проверяет, можно ли представить элементы среза непрерывным span. */
     bool is_contiguous() const noexcept {
         return elementCount <= 1 || elementStride == 1;
     }
 
-    // Указатель на первый элемент.
+    /** @brief Возвращает указатель на первый элемент или nullptr для пустого среза. */
     T* data() const noexcept {
         return elements;
     }
 
-    // Доступ к элементу по индексу.
+    /** @brief Возвращает элемент без проверки индекса с учётом шага среза. */
     T& operator()(size_t index) const noexcept {
         return elements[index * elementStride];
     }
 
-    // Проверяемый доступ к элементу.
+    /**
+     * @brief Возвращает элемент с проверкой индекса.
+     * @throws out_of_range Если индекс не меньше размера среза.
+     */
     T& at(size_t index) const {
         if (index >= elementCount) {
             throw out_of_range("Индекс среза вне диапазона");
@@ -95,7 +109,10 @@ public:
         return (*this)(index);
     }
 
-    // Получение span.
+    /**
+     * @brief Получает span для непрерывного среза.
+     * @throws NonContiguousSliceError Если срез неплотный.
+     */
     span<T> operator*() const {
         if (!is_contiguous()) {
             throw NonContiguousSliceError(
@@ -110,13 +127,13 @@ public:
         return span<T>(elements, elementCount);
     }
 
-    // Явное получение span.
+    /** @brief Получает span; условия непрерывности и исключение те же, что у operator*. */
     span<T> as_span() const {
         return **this;
     }
 
-    // Получение константного представления среза.
-    MatrixSlice<const remove_const_t<T>> as_const() const {
+    /** @brief Возвращает константное представление того же невладеющего среза. */
+    MatrixSlice<const remove_const_t<T>> as_const() const noexcept {
         return MatrixSlice<const remove_const_t<T>>(
             elements,
             elementCount,
