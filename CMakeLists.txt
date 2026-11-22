@@ -3,6 +3,8 @@ cmake_minimum_required(VERSION 3.24)
 
 project(lab_1_data_processing LANGUAGES CXX)
 
+find_package(Threads REQUIRED)
+
 # Генерация документации является необязательной и не входит в обычную сборку.
 find_package(Doxygen QUIET)
 
@@ -90,6 +92,7 @@ add_library(lab1_core
     src/decision_stump.cpp
     src/split_finder.cpp
     src/cart.cpp
+    src/random_forest.cpp
 )
 
 target_include_directories(
@@ -98,7 +101,7 @@ target_include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-target_link_libraries(lab1_core PUBLIC project_options)
+target_link_libraries(lab1_core PUBLIC project_options Threads::Threads)
 
 # Консольное приложение
 add_executable(lab1 src/lab1.cpp)
@@ -114,6 +117,21 @@ target_link_libraries(
 include(CTest)
 
 if(BUILD_TESTING)
+
+# Тесты Random Forest
+add_executable(random_forest_tests
+    test/random_forest_tests.cpp
+)
+
+target_link_libraries(
+    random_forest_tests
+    PRIVATE lab1_core
+)
+
+add_test(
+    NAME random_forest_tests
+    COMMAND random_forest_tests
+)
 
  # Тесты ЛР1
 add_executable(lab1_tests
