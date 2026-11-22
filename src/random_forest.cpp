@@ -595,3 +595,29 @@ span<const double> RandomForestClassifier::classes() const {
 
     return classLabels;
 }
+
+vector<CartTreeSummary> RandomForestRegressor::tree_summaries() const {
+    if (!fitted) {
+        throw ModelUsageError("Случайный лес ещё не обучен");
+    }
+
+    vector<CartTreeSummary> summaries;
+    summaries.reserve(trees.size());
+    for (const auto& tree : trees) {
+        summaries.push_back(tree->summary());
+    }
+    return summaries;
+}
+
+vector<CartTreeSummary> RandomForestClassifier::tree_summaries() const {
+    if (!fitted) {
+        throw ModelUsageError("Случайный лес ещё не обучен");
+    }
+
+    vector<CartTreeSummary> summaries;
+    summaries.reserve(trees.size());
+    for (const auto& tree : trees) {
+        summaries.push_back(tree->summary());
+    }
+    return summaries;
+}

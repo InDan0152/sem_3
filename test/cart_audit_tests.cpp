@@ -2,16 +2,27 @@
 #include "decision_stump.hpp"
 #include "exceptions.hpp"
 
-#include <cassert>
+#include <iostream>
 #include <cmath>
 #include <limits>
 #include <memory>
 #include <stdexcept>
+#include <string>
 #include <type_traits>
 #include <utility>
 #include <vector>
 
 using namespace std;
+
+#define CHECK(condition) \
+    do { \
+        if (!(condition)) { \
+            throw runtime_error( \
+                string("Проверка не пройдена: ") + #condition + \
+                " (" + __FILE__ + ":" + to_string(__LINE__) + ")" \
+            ); \
+        } \
+    } while (false)
 
 static_assert(noexcept(declval<MatrixSlice<double>>()(size_t{})));
 static_assert(noexcept(declval<Matrix&>()(size_t{}, size_t{})));
@@ -42,9 +53,9 @@ void testSplitTieBreaksByFeatureAndThreshold() {
         1
     );
 
-    assert(split.has_value());
-    assert(split->featureIndex == 0);
-    assert(close(split->threshold, 0.5));
+    CHECK(split.has_value());
+    CHECK(split->featureIndex == 0);
+    CHECK(close(split->threshold, 0.5));
 }
 
 void testAdjacentRepresentableThresholdRoutesCorrectly() {
@@ -57,11 +68,11 @@ void testAdjacentRepresentableThresholdRoutesCorrectly() {
     model.fit(features, target);
     const CartTreeSummary summary = model.summary();
 
-    assert(summary.splits.size() == 1);
-    assert(summary.splits[0].threshold == lower);
+    CHECK(summary.splits.size() == 1);
+    CHECK(summary.splits[0].threshold == lower);
     const vector<double> predictions = model.predict(features);
-    assert(predictions[0] == 0.0);
-    assert(predictions[1] == 10.0);
+    CHECK(predictions[0] == 0.0);
+    CHECK(predictions[1] == 10.0);
 }
 
 void testSplitFinderHonorsFeatureSubset() {
@@ -84,7 +95,7 @@ void testSplitFinderHonorsFeatureSubset() {
         1
     );
 
-    assert(!split.has_value());
+    CHECK(!split.has_value());
 
     Matrix tiedFeatures({
         {0.0, 0.0},
@@ -102,8 +113,8 @@ void testSplitFinderHonorsFeatureSubset() {
         SplitCriterion::Gini,
         1
     );
-    assert(giniSplit.has_value());
-    assert(giniSplit->featureIndex == 0);
+    CHECK(giniSplit.has_value());
+    CHECK(giniSplit->featureIndex == 0);
 }
 
 void testIdenticalTargetsStopBothTrees() {
@@ -114,15 +125,15 @@ void testIdenticalTargetsStopBothTrees() {
     CartRegressor regressor(10);
     regressor.fit(features, regressionTarget);
     const CartTreeSummary regressionSummary = regressor.summary();
-    assert(regressionSummary.nodeCount == 1);
-    assert(regressionSummary.leafCount == 1);
-    assert(regressionSummary.depth == 0);
+    CHECK(regressionSummary.nodeCount == 1);
+    CHECK(regressionSummary.leafCount == 1);
+    CHECK(regressionSummary.depth == 0);
 
     CartClassifier classifier(10);
     classifier.fit(features, classificationTarget);
     const CartTreeSummary classificationSummary = classifier.summary();
-    assert(classificationSummary.nodeCount == 1);
-    assert(classificationSummary.leafCount == 1);
+    CHECK(classificationSummary.nodeCount == 1);
+    CHECK(classificationSummary.leafCount == 1);
 }
 
 void testClassificationStumpEquivalence() {
@@ -140,7 +151,7 @@ void testClassificationStumpEquivalence() {
     tree.fit(features, target);
     stump.fit(features, target);
 
-    assert(tree.predict(features) == stump.predict(features));
+    CHECK(tree.predict(features) == stump.predict(features));
 }
 
 void testProbabilitiesUseGlobalSortedClassesAndTieBreak() {
@@ -151,13 +162,13 @@ void testProbabilitiesUseGlobalSortedClassesAndTieBreak() {
     classifier.fit(features, target);
 
     const span<const double> classes = classifier.classes();
-    assert(classes.size() == 2);
-    assert(classes[0] == 10.0);
-    assert(classes[1] == 42.0);
+    CHECK(classes.size() == 2);
+    CHECK(classes[0] == 10.0);
+    CHECK(classes[1] == 42.0);
 
     Matrix probabilities = classifier.predict_proba(features);
-    assert(close(probabilities(0, 0), 1.0 / 3.0));
-    assert(close(probabilities(0, 1), 2.0 / 3.0));
+    CHECK(close(probabilities(0, 0), 1.0 / 3.0));
+    CHECK(close(probabilities(0, 1), 2.0 / 3.0));
 
     Matrix separatedFeatures({{0.0}, {1.0}, {2.0}, {3.0}});
     const vector<double> separatedTarget{10.0, 10.0, 42.0, 42.0};
@@ -165,16 +176,16 @@ void testProbabilitiesUseGlobalSortedClassesAndTieBreak() {
     separated.fit(separatedFeatures, separatedTarget);
     const Matrix leafProbabilities =
         separated.predict_proba(separatedFeatures);
-    assert(leafProbabilities(0, 0) == 1.0);
-    assert(leafProbabilities(0, 1) == 0.0);
-    assert(leafProbabilities(3, 0) == 0.0);
-    assert(leafProbabilities(3, 1) == 1.0);
+    CHECK(leafProbabilities(0, 0) == 1.0);
+    CHECK(leafProbabilities(0, 1) == 0.0);
+    CHECK(leafProbabilities(3, 0) == 0.0);
+    CHECK(leafProbabilities(3, 1) == 1.0);
 
     Matrix tieFeatures(vector<vector<double>>{{0.0}, {1.0}});
     const vector<double> tieTarget{10.0, 42.0};
     CartClassifier tied(0);
     tied.fit(tieFeatures, tieTarget);
-    assert(tied.predict(tieFeatures)[0] == 10.0);
+    CHECK(tied.predict(tieFeatures)[0] == 10.0);
 }
 
 void testLocalClassEncodingWithClassesAbsentFromLeaves() {
@@ -187,26 +198,26 @@ void testLocalClassEncodingWithClassesAbsentFromLeaves() {
     classifier.fit(features, target);
 
     const span<const double> classes = classifier.classes();
-    assert(classes.size() == 3);
-    assert(classes[0] == 10.0);
-    assert(classes[1] == 42.0);
-    assert(classes[2] == 100.0);
+    CHECK(classes.size() == 3);
+    CHECK(classes[0] == 10.0);
+    CHECK(classes[1] == 42.0);
+    CHECK(classes[2] == 100.0);
 
     const CartTreeSummary summary = classifier.summary();
-    assert(summary.splits.size() == 2);
-    assert(summary.splits[0].threshold == 1.5);
-    assert(summary.splits[1].threshold == 3.5);
+    CHECK(summary.splits.size() == 2);
+    CHECK(summary.splits[0].threshold == 1.5);
+    CHECK(summary.splits[1].threshold == 3.5);
 
     const Matrix probabilities = classifier.predict_proba(features);
-    assert(probabilities(0, 0) == 1.0);
-    assert(probabilities(0, 1) == 0.0);
-    assert(probabilities(0, 2) == 0.0);
-    assert(probabilities(2, 0) == 0.0);
-    assert(probabilities(2, 1) == 1.0);
-    assert(probabilities(2, 2) == 0.0);
-    assert(probabilities(5, 0) == 0.0);
-    assert(probabilities(5, 1) == 0.0);
-    assert(probabilities(5, 2) == 1.0);
+    CHECK(probabilities(0, 0) == 1.0);
+    CHECK(probabilities(0, 1) == 0.0);
+    CHECK(probabilities(0, 2) == 0.0);
+    CHECK(probabilities(2, 0) == 0.0);
+    CHECK(probabilities(2, 1) == 1.0);
+    CHECK(probabilities(2, 2) == 0.0);
+    CHECK(probabilities(5, 0) == 0.0);
+    CHECK(probabilities(5, 1) == 0.0);
+    CHECK(probabilities(5, 2) == 1.0);
 }
 
 void testRefitEmptyPredictionAndClassReplacement() {
@@ -220,14 +231,14 @@ void testRefitEmptyPredictionAndClassReplacement() {
     classifier.fit(secondFeatures, secondTarget);
 
     const span<const double> classes = classifier.classes();
-    assert(classes.size() == 3);
-    assert(classes[0] == 7.0 && classes[1] == 9.0 && classes[2] == 11.0);
+    CHECK(classes.size() == 3);
+    CHECK(classes[0] == 7.0 && classes[1] == 9.0 && classes[2] == 11.0);
 
     Matrix emptyTest(0, 1);
-    assert(classifier.predict(emptyTest).empty());
+    CHECK(classifier.predict(emptyTest).empty());
     Matrix emptyProbabilities = classifier.predict_proba(emptyTest);
-    assert(emptyProbabilities.rows() == 0);
-    assert(emptyProbabilities.columns() == 3);
+    CHECK(emptyProbabilities.rows() == 0);
+    CHECK(emptyProbabilities.columns() == 3);
 }
 
 void testRegressorRepeatedFit() {
@@ -239,12 +250,12 @@ void testRegressorRepeatedFit() {
     regressor.fit(features, firstTarget);
     regressor.fit(features, secondTarget);
     const vector<double> predictions = regressor.predict(features);
-    assert(predictions.size() == 3);
-    assert(predictions[0] == 20.0);
-    assert(predictions[2] == 20.0);
+    CHECK(predictions.size() == 3);
+    CHECK(predictions[0] == 20.0);
+    CHECK(predictions[2] == 20.0);
 
     Matrix emptyTest(0, 1);
-    assert(regressor.predict(emptyTest).empty());
+    CHECK(regressor.predict(emptyTest).empty());
 }
 
 void testParametersAndImpossibleMinimumLeafSize() {
@@ -254,7 +265,7 @@ void testParametersAndImpossibleMinimumLeafSize() {
     } catch (const InvalidParameterError&) {
         rejectedSplit = true;
     }
-    assert(rejectedSplit);
+    CHECK(rejectedSplit);
 
     bool rejectedLeaf = false;
     try {
@@ -262,7 +273,7 @@ void testParametersAndImpossibleMinimumLeafSize() {
     } catch (const InvalidParameterError&) {
         rejectedLeaf = true;
     }
-    assert(rejectedLeaf);
+    CHECK(rejectedLeaf);
 
     bool rejectedDepth = false;
     try {
@@ -270,17 +281,17 @@ void testParametersAndImpossibleMinimumLeafSize() {
     } catch (const InvalidParameterError&) {
         rejectedDepth = true;
     }
-    assert(rejectedDepth);
+    CHECK(rejectedDepth);
 
     Matrix features({{0.0}, {1.0}, {2.0}});
     const vector<double> target{0.0, 1.0, 2.0};
     CartRegressor noSplit(5, 2, numeric_limits<size_t>::max());
     noSplit.fit(features, target);
-    assert(noSplit.summary().nodeCount == 1);
+    CHECK(noSplit.summary().nodeCount == 1);
 
     CartRegressor tooFewObjects(5, 4, 1);
     tooFewObjects.fit(features, target);
-    assert(tooFewObjects.summary().nodeCount == 1);
+    CHECK(tooFewObjects.summary().nodeCount == 1);
 
     Matrix leafLimitedFeatures({{0.0}, {1.0}, {2.0}, {3.0}});
     const vector<double> leafLimitedTarget{0.0, 0.0, 0.0, 100.0};
@@ -288,8 +299,8 @@ void testParametersAndImpossibleMinimumLeafSize() {
     leafLimited.fit(leafLimitedFeatures, leafLimitedTarget);
     const vector<double> leafLimitedPredictions =
         leafLimited.predict(leafLimitedFeatures);
-    assert(leafLimitedPredictions[0] == 0.0);
-    assert(leafLimitedPredictions[3] == 50.0);
+    CHECK(leafLimitedPredictions[0] == 0.0);
+    CHECK(leafLimitedPredictions[3] == 50.0);
 }
 
 void testSingleObjectTraining() {
@@ -297,16 +308,16 @@ void testSingleObjectTraining() {
     const vector<double> regressionTarget{17.0};
     CartRegressor regressor(8);
     regressor.fit(features, regressionTarget);
-    assert(regressor.summary().nodeCount == 1);
-    assert(regressor.predict(features)[0] == 17.0);
+    CHECK(regressor.summary().nodeCount == 1);
+    CHECK(regressor.predict(features)[0] == 17.0);
 
     const vector<double> classificationTarget{42.0};
     CartClassifier classifier(8);
     classifier.fit(features, classificationTarget);
-    assert(classifier.summary().nodeCount == 1);
-    assert(classifier.predict(features)[0] == 42.0);
+    CHECK(classifier.summary().nodeCount == 1);
+    CHECK(classifier.predict(features)[0] == 42.0);
     const Matrix probabilities = classifier.predict_proba(features);
-    assert(probabilities(0, 0) == 1.0);
+    CHECK(probabilities(0, 0) == 1.0);
 }
 
 void testFitAndPredictContractErrors() {
@@ -321,7 +332,7 @@ void testFitAndPredictContractErrors() {
     } catch (const ModelUsageError&) {
         predictBeforeFitRejected = true;
     }
-    assert(predictBeforeFitRejected);
+    CHECK(predictBeforeFitRejected);
 
     bool emptyTrainingRejected = false;
     try {
@@ -331,7 +342,7 @@ void testFitAndPredictContractErrors() {
     } catch (const InvalidParameterError&) {
         emptyTrainingRejected = true;
     }
-    assert(emptyTrainingRejected);
+    CHECK(emptyTrainingRejected);
 
     bool zeroColumnsRejected = false;
     try {
@@ -340,7 +351,7 @@ void testFitAndPredictContractErrors() {
     } catch (const InvalidParameterError&) {
         zeroColumnsRejected = true;
     }
-    assert(zeroColumnsRejected);
+    CHECK(zeroColumnsRejected);
 
     bool sizeMismatchRejected = false;
     try {
@@ -349,7 +360,7 @@ void testFitAndPredictContractErrors() {
     } catch (const DimensionMismatchError&) {
         sizeMismatchRejected = true;
     }
-    assert(sizeMismatchRejected);
+    CHECK(sizeMismatchRejected);
 
     bool nonFiniteTargetRejected = false;
     try {
@@ -358,7 +369,7 @@ void testFitAndPredictContractErrors() {
     } catch (const InvalidParameterError&) {
         nonFiniteTargetRejected = true;
     }
-    assert(nonFiniteTargetRejected);
+    CHECK(nonFiniteTargetRejected);
 
     Matrix nonFiniteFeatures(vector<vector<double>>{{infinity}});
     bool nonFiniteFeaturesRejected = false;
@@ -367,7 +378,7 @@ void testFitAndPredictContractErrors() {
     } catch (const InvalidParameterError&) {
         nonFiniteFeaturesRejected = true;
     }
-    assert(nonFiniteFeaturesRejected);
+    CHECK(nonFiniteFeaturesRejected);
 
     regressor.fit(validFeatures, validTarget);
     bool wrongPredictWidthRejected = false;
@@ -377,7 +388,7 @@ void testFitAndPredictContractErrors() {
     } catch (const DimensionMismatchError&) {
         wrongPredictWidthRejected = true;
     }
-    assert(wrongPredictWidthRejected);
+    CHECK(wrongPredictWidthRejected);
 
     bool nonFinitePredictionRejected = false;
     try {
@@ -385,7 +396,7 @@ void testFitAndPredictContractErrors() {
     } catch (const InvalidParameterError&) {
         nonFinitePredictionRejected = true;
     }
-    assert(nonFinitePredictionRejected);
+    CHECK(nonFinitePredictionRejected);
 
     CartClassifier classifier(1);
     bool classesBeforeFitRejected = false;
@@ -394,14 +405,14 @@ void testFitAndPredictContractErrors() {
     } catch (const ModelUsageError&) {
         classesBeforeFitRejected = true;
     }
-    assert(classesBeforeFitRejected);
+    CHECK(classesBeforeFitRejected);
 }
 
 void testDefaultAndCheckedMatrixSliceAccess() {
     MatrixSlice<double> empty;
-    assert(empty.empty());
-    assert(empty.data() == nullptr);
-    assert(empty.stride() == 1);
+    CHECK(empty.empty());
+    CHECK(empty.data() == nullptr);
+    CHECK(empty.stride() == 1);
 
     bool rejectedIndex = false;
     try {
@@ -409,7 +420,7 @@ void testDefaultAndCheckedMatrixSliceAccess() {
     } catch (const out_of_range&) {
         rejectedIndex = true;
     }
-    assert(rejectedIndex);
+    CHECK(rejectedIndex);
 
     Matrix matrix(1, 1);
     bool rejectedMatrixIndex = false;
@@ -418,7 +429,7 @@ void testDefaultAndCheckedMatrixSliceAccess() {
     } catch (const out_of_range&) {
         rejectedMatrixIndex = true;
     }
-    assert(rejectedMatrixIndex);
+    CHECK(rejectedMatrixIndex);
 }
 
 void testMultilevelTreeSummaryAndLayouts() {
@@ -436,39 +447,39 @@ void testMultilevelTreeSummaryAndLayouts() {
     columnTree.fit(columnMajor, target);
 
     const CartTreeSummary summary = rowTree.summary();
-    assert(summary.depth == 2);
-    assert(summary.nodeCount == 7);
-    assert(summary.leafCount == 4);
-    assert(summary.splits.size() == 3);
-    assert(rowTree.predict(rowMajor) == columnTree.predict(columnMajor));
+    CHECK(summary.depth == 2);
+    CHECK(summary.nodeCount == 7);
+    CHECK(summary.leafCount == 4);
+    CHECK(summary.splits.size() == 3);
+    CHECK(rowTree.predict(rowMajor) == columnTree.predict(columnMajor));
 
     CartRegressor stumpDepth(1);
     stumpDepth.fit(rowMajor, target);
-    assert(stumpDepth.summary().depth == 1);
-    assert(stumpDepth.predict(rowMajor) != rowTree.predict(rowMajor));
+    CHECK(stumpDepth.summary().depth == 1);
+    CHECK(stumpDepth.predict(rowMajor) != rowTree.predict(rowMajor));
 
     const CartTreeSummary columnSummary = columnTree.summary();
-    assert(summary.nodeCount == columnSummary.nodeCount);
-    assert(summary.leafCount == columnSummary.leafCount);
-    assert(summary.depth == columnSummary.depth);
+    CHECK(summary.nodeCount == columnSummary.nodeCount);
+    CHECK(summary.leafCount == columnSummary.leafCount);
+    CHECK(summary.depth == columnSummary.depth);
     for (size_t i = 0; i < summary.splits.size(); ++i) {
-        assert(summary.splits[i].featureIndex == columnSummary.splits[i].featureIndex);
-        assert(summary.splits[i].threshold == columnSummary.splits[i].threshold);
+        CHECK(summary.splits[i].featureIndex == columnSummary.splits[i].featureIndex);
+        CHECK(summary.splits[i].threshold == columnSummary.splits[i].threshold);
     }
 
     CartClassifier rowClassifier(2);
     CartClassifier columnClassifier(2);
     rowClassifier.fit(rowMajor, target);
     columnClassifier.fit(columnMajor, target);
-    assert(rowClassifier.predict(rowMajor) == columnClassifier.predict(columnMajor));
+    CHECK(rowClassifier.predict(rowMajor) == columnClassifier.predict(columnMajor));
 
     const Matrix rowProbabilities = rowClassifier.predict_proba(rowMajor);
     const Matrix columnProbabilities = columnClassifier.predict_proba(columnMajor);
-    assert(rowProbabilities.rows() == columnProbabilities.rows());
-    assert(rowProbabilities.columns() == columnProbabilities.columns());
+    CHECK(rowProbabilities.rows() == columnProbabilities.rows());
+    CHECK(rowProbabilities.columns() == columnProbabilities.columns());
     for (size_t i = 0; i < rowProbabilities.rows(); ++i) {
         for (size_t j = 0; j < rowProbabilities.columns(); ++j) {
-            assert(rowProbabilities(i, j) == columnProbabilities(i, j));
+            CHECK(rowProbabilities(i, j) == columnProbabilities(i, j));
         }
     }
 }
@@ -491,7 +502,7 @@ void testWeightedRegressionWithBootstrapCounts() {
     // (0 * 3 + 10 * 1) / (3 + 1) = 2.5.
     // Третий объект имеет нулевую кратность и не влияет на результат.
     for (double prediction : predictions) {
-        assert(close(prediction, 2.5));
+        CHECK(close(prediction, 2.5));
     }
 }
 
@@ -512,23 +523,23 @@ void testWeightedClassificationWithBootstrapCounts() {
 
     // Все классы исходной выборки должны сохраняться,
     // даже если кратность объекта соответствующего класса равна нулю.
-    assert(classes.size() == 3);
-    assert(classes[0] == 10.0);
-    assert(classes[1] == 42.0);
-    assert(classes[2] == 100.0);
+    CHECK(classes.size() == 3);
+    CHECK(classes[0] == 10.0);
+    CHECK(classes[1] == 42.0);
+    CHECK(classes[2] == 100.0);
 
     const Matrix probabilities = model.predict_proba(features);
 
     for (size_t i = 0; i < probabilities.rows(); ++i) {
-        assert(close(probabilities(i, 0), 0.75));
-        assert(close(probabilities(i, 1), 0.25));
-        assert(close(probabilities(i, 2), 0.0));
+        CHECK(close(probabilities(i, 0), 0.75));
+        CHECK(close(probabilities(i, 1), 0.25));
+        CHECK(close(probabilities(i, 2), 0.0));
     }
 
     const vector<double> predictions = model.predict(features);
 
     for (double prediction : predictions) {
-        assert(prediction == 10.0);
+        CHECK(prediction == 10.0);
     }
 }
 
@@ -549,7 +560,7 @@ void testZeroBootstrapCountsAreIgnored() {
     const vector<double> predictions = model.predict(features);
 
     for (double prediction : predictions) {
-        assert(close(prediction, 5.0));
+        CHECK(close(prediction, 5.0));
     }
 }
 
@@ -585,24 +596,24 @@ void testRandomStateReproducibility() {
     const CartTreeSummary firstSummary = first.summary();
     const CartTreeSummary secondSummary = second.summary();
 
-    assert(firstSummary.nodeCount == secondSummary.nodeCount);
-    assert(firstSummary.leafCount == secondSummary.leafCount);
-    assert(firstSummary.depth == secondSummary.depth);
-    assert(firstSummary.splits.size() == secondSummary.splits.size());
+    CHECK(firstSummary.nodeCount == secondSummary.nodeCount);
+    CHECK(firstSummary.leafCount == secondSummary.leafCount);
+    CHECK(firstSummary.depth == secondSummary.depth);
+    CHECK(firstSummary.splits.size() == secondSummary.splits.size());
 
     for (size_t i = 0; i < firstSummary.splits.size(); ++i) {
-        assert(
+        CHECK(
             firstSummary.splits[i].featureIndex ==
             secondSummary.splits[i].featureIndex
         );
 
-        assert(
+        CHECK(
             firstSummary.splits[i].threshold ==
             secondSummary.splits[i].threshold
         );
     }
 
-    assert(first.predict(features) == second.predict(features));
+    CHECK(first.predict(features) == second.predict(features));
 }
 
 void testRandomFeatureSearchModes() {
@@ -644,15 +655,15 @@ void testRandomFeatureSearchModes() {
     const vector<double> countPredictions =
         countModel.predict(features);
 
-    assert(sqrtPredictions.size() == target.size());
-    assert(countPredictions.size() == target.size());
+    CHECK(sqrtPredictions.size() == target.size());
+    CHECK(countPredictions.size() == target.size());
 
     for (double prediction : sqrtPredictions) {
-        assert(isfinite(prediction));
+        CHECK(isfinite(prediction));
     }
 
     for (double prediction : countPredictions) {
-        assert(isfinite(prediction));
+        CHECK(isfinite(prediction));
     }
 }
 
@@ -689,39 +700,207 @@ void testUnboundedTreeDepth() {
 
     // Без ограничения глубины дерево должно иметь
     // возможность построить больше одного уровня.
-    assert(summary.depth >= 2);
-    assert(summary.nodeCount > 3);
+    CHECK(summary.depth >= 2);
+    CHECK(summary.nodeCount > 3);
 
     const vector<double> predictions = model.predict(features);
 
-    assert(predictions.size() == target.size());
+    CHECK(predictions.size() == target.size());
 
     for (double prediction : predictions) {
-        assert(isfinite(prediction));
+        CHECK(isfinite(prediction));
     }
+}
+
+
+void testWeightedSplitScoresAgainstManualReference() {
+    // Регрессия: вручную считаем S_L^2/W_L + S_R^2/W_R.
+    Matrix regressionFeatures({{0.0}, {1.0}, {2.0}});
+    const vector<double> regressionTarget{0.0, 10.0, 0.0};
+    const vector<size_t> regressionObjects{0, 1, 2};
+    const vector<size_t> regressionFeature{0};
+    const vector<size_t> regressionCounts{2, 1, 3};
+
+    const auto regressionSplit = SplitFinder::findBestSplit(
+        regressionFeatures,
+        regressionTarget,
+        regressionObjects,
+        regressionFeature,
+        SplitCriterion::Variance,
+        1,
+        regressionCounts
+    );
+
+    CHECK(regressionSplit.has_value());
+    CHECK(regressionSplit->threshold == 1.5);
+    // Для выбранного разбиения: (10^2 / 3) + (0^2 / 3) = 100/3.
+    CHECK(close(static_cast<double>(regressionSplit->score), 100.0 / 3.0));
+
+    // Классификация: вручную считаем sum(n_c^2)/W для обеих частей.
+    Matrix classificationFeatures({{0.0}, {1.0}, {2.0}, {3.0}});
+    const vector<double> classificationTarget{0.0, 0.0, 1.0, 1.0};
+    const vector<size_t> classificationObjects{0, 1, 2, 3};
+    const vector<size_t> classificationFeature{0};
+    const vector<size_t> classificationCounts{3, 1, 2, 2};
+
+    const auto classificationSplit = SplitFinder::findBestSplit(
+        classificationFeatures,
+        classificationTarget,
+        classificationObjects,
+        classificationFeature,
+        SplitCriterion::Gini,
+        1,
+        classificationCounts
+    );
+
+    CHECK(classificationSplit.has_value());
+    CHECK(classificationSplit->threshold == 1.5);
+    // Слева четыре объекта класса 0, справа четыре класса 1: 16/4 + 16/4.
+    CHECK(close(static_cast<double>(classificationSplit->score), 8.0));
+}
+
+void testMinimumLeafAndSplitUseUniqueSourceObjects() {
+    Matrix features(vector<vector<double>>{{0.0}, {1.0}});
+    const vector<double> target{0.0, 10.0};
+    const vector<size_t> counts{10, 1};
+
+    // Сумма кратностей равна 11, но различных исходных индексов только 2.
+    CartRegressor splitLimited(nullopt, 3, 1);
+    splitLimited.fit_with_counts(features, target, counts);
+    CHECK(splitLimited.summary().nodeCount == 1);
+
+    CartRegressor leafLimited(nullopt, 2, 2);
+    leafLimited.fit_with_counts(features, target, counts);
+    CHECK(leafLimited.summary().nodeCount == 1);
+    const auto predictions = leafLimited.predict(features);
+    CHECK(close(predictions[0], 10.0 / 11.0));
+    CHECK(close(predictions[1], 10.0 / 11.0));
+}
+
+void testZeroImpurityImprovementDoesNotBlockSplit() {
+    // Оба потомка имеют ту же дисперсию, что и корень, но target не константен.
+    Matrix features({{0.0}, {0.0}, {1.0}, {1.0}});
+    const vector<double> target{0.0, 1.0, 0.0, 1.0};
+
+    CartRegressor model(1);
+    model.fit(features, target);
+    const CartTreeSummary summary = model.summary();
+
+    CHECK(summary.depth == 1);
+    CHECK(summary.nodeCount == 3);
+    CHECK(summary.splits.size() == 1);
+    CHECK(summary.splits[0].threshold == 0.5);
+}
+
+void testFallbackAfterConstantFirstFeatureCandidate() {
+    Matrix features({
+        {0.0, 0.0},
+        {0.0, 1.0},
+        {0.0, 2.0},
+        {0.0, 3.0}
+    });
+    const vector<double> target{0.0, 0.0, 10.0, 10.0};
+
+    // Для seed 0 первым просматривается признак 0, который константен.
+    // Алгоритм должен продолжить поиск и найти разбиение по признаку 1.
+    CartRegressor model(
+        1,
+        2,
+        1,
+        FeatureSearchParams{FeatureMode::Count, 1},
+        0
+    );
+    model.fit(features, target);
+    const CartTreeSummary summary = model.summary();
+
+    CHECK(summary.splits.size() == 1);
+    CHECK(summary.splits[0].featureIndex == 1);
+}
+
+
+
+void testFeatureSelectionIsRepeatedAtEachNode() {
+    Matrix features({
+        {0.0, 0.0}, {0.0, 1.0}, {0.0, 2.0}, {0.0, 3.0},
+        {1.0, 0.0}, {1.0, 1.0}, {1.0, 2.0}, {1.0, 3.0}
+    });
+
+    const vector<double> target{
+        0.0, 0.0, 10.0, 10.0,
+        100.0, 100.0, 110.0, 110.0
+    };
+
+    CartRegressor model(
+        2,
+        2,
+        1,
+        FeatureSearchParams{FeatureMode::Count, 1},
+        0
+    );
+
+    model.fit(features, target);
+    const CartTreeSummary summary = model.summary();
+
+    CHECK(summary.depth == 2);
+    CHECK(summary.splits.size() == 3);
+
+    CHECK(summary.splits[0].depth == 0);
+    CHECK(summary.splits[1].depth == 1);
+    CHECK(summary.splits[2].depth == 1);
+
+    bool selectedFeature0 = false;
+    bool selectedFeature1 = false;
+
+    for (const auto& split : summary.splits) {
+        CHECK(split.featureIndex < features.columns());
+
+        if (split.featureIndex == 0) {
+            selectedFeature0 = true;
+        } else if (split.featureIndex == 1) {
+            selectedFeature1 = true;
+        }
+    }
+
+    // При max_features=1 разные узлы могут выбирать разные признаки.
+    CHECK(selectedFeature0);
+    CHECK(selectedFeature1);
 }
 
 } // namespace
 
 int main() {
-    testSplitTieBreaksByFeatureAndThreshold();
-    testAdjacentRepresentableThresholdRoutesCorrectly();
-    testSplitFinderHonorsFeatureSubset();
-    testIdenticalTargetsStopBothTrees();
-    testClassificationStumpEquivalence();
-    testProbabilitiesUseGlobalSortedClassesAndTieBreak();
-    testLocalClassEncodingWithClassesAbsentFromLeaves();
-    testRefitEmptyPredictionAndClassReplacement();
-    testRegressorRepeatedFit();
-    testParametersAndImpossibleMinimumLeafSize();
-    testSingleObjectTraining();
-    testFitAndPredictContractErrors();
-    testDefaultAndCheckedMatrixSliceAccess();
-    testMultilevelTreeSummaryAndLayouts();
-    testWeightedRegressionWithBootstrapCounts();
-    testWeightedClassificationWithBootstrapCounts();
-    testZeroBootstrapCountsAreIgnored();
-    testRandomStateReproducibility();
-    testRandomFeatureSearchModes();
-    testUnboundedTreeDepth();
+    try {
+        testSplitTieBreaksByFeatureAndThreshold();
+        testAdjacentRepresentableThresholdRoutesCorrectly();
+        testSplitFinderHonorsFeatureSubset();
+        testIdenticalTargetsStopBothTrees();
+        testClassificationStumpEquivalence();
+        testProbabilitiesUseGlobalSortedClassesAndTieBreak();
+        testLocalClassEncodingWithClassesAbsentFromLeaves();
+        testRefitEmptyPredictionAndClassReplacement();
+        testRegressorRepeatedFit();
+        testParametersAndImpossibleMinimumLeafSize();
+        testSingleObjectTraining();
+        testFitAndPredictContractErrors();
+        testDefaultAndCheckedMatrixSliceAccess();
+        testMultilevelTreeSummaryAndLayouts();
+        testWeightedRegressionWithBootstrapCounts();
+        testWeightedClassificationWithBootstrapCounts();
+        testZeroBootstrapCountsAreIgnored();
+        testRandomStateReproducibility();
+        testRandomFeatureSearchModes();
+        testUnboundedTreeDepth();
+        testWeightedSplitScoresAgainstManualReference();
+        testMinimumLeafAndSplitUseUniqueSourceObjects();
+        testZeroImpurityImprovementDoesNotBlockSplit();
+        testFallbackAfterConstantFirstFeatureCandidate();
+        testFeatureSelectionIsRepeatedAtEachNode();
+
+        std::cout << "All CART audit tests passed!\n";
+        return 0;
+    }
+    catch (const std::exception& e) {
+        std::cerr << "CART audit test failed: " << e.what() << '\n';
+        return 1;
+    }
 }

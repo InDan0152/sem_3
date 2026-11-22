@@ -69,6 +69,9 @@ public:
     vector<double> predict(
         const Matrix& features
     ) const override;
+
+    // Сводная информация о каждом дереве после обучения.
+    vector<CartTreeSummary> tree_summaries() const;
 };
 
 
@@ -105,4 +108,7 @@ public:
     ) const override;
 
     span<const double> classes() const override;
+
+    // Сводная информация о каждом дереве после обучения.
+    vector<CartTreeSummary> tree_summaries() const;
 };

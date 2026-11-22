@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <chrono>
 
 #include "csv_loader.hpp"
 #include "statistics.hpp"
@@ -19,6 +20,7 @@
 #include "matrix.hpp"
 #include "decision_stump.hpp"
 #include "cart.hpp"
+#include "random_forest.hpp"
 #include "model.hpp"
 
 using namespace std;
@@ -100,6 +102,41 @@ void printCartSummary(
     }
 }
 
+void printForestSummary(
+    const vector<CartTreeSummary>& summaries,
+    const vector<string>& featureNames
+) {
+    size_t totalNodes = 0;
+    size_t totalLeaves = 0;
+    size_t maximumDepth = 0;
+
+    for (const auto& summary : summaries) {
+        totalNodes += summary.nodeCount;
+        totalLeaves += summary.leafCount;
+        maximumDepth = max(maximumDepth, summary.depth);
+    }
+
+    cout << "\nСтруктура случайного леса:\n"
+         << "Деревьев: " << summaries.size() << '\n'
+         << "Всего узлов: " << totalNodes << '\n'
+         << "Всего листьев: " << totalLeaves << '\n'
+         << "Максимальная глубина дерева: " << maximumDepth << '\n';
+
+    const size_t displayedTrees = min(size_t{5}, summaries.size());
+    cout << "Размеры первых " << displayedTrees << " деревьев:\n";
+    for (size_t i = 0; i < displayedTrees; ++i) {
+        cout << "  Дерево " << i + 1
+             << ": узлов " << summaries[i].nodeCount
+             << ", листьев " << summaries[i].leafCount
+             << ", глубина " << summaries[i].depth << '\n';
+    }
+
+    if (!summaries.empty()) {
+        cout << "\nРазбиения первого дерева:";
+        printCartSummary(summaries.front(), featureNames);
+    }
+}
+
 void printDecisionStumpSummary(
     const DecisionStump& stump,
     const vector<string>& featureNames
@@ -142,7 +179,9 @@ int runMachineLearning(
     const string& task,
     size_t maxDepth,
     size_t minSamplesSplit,
-    size_t minSamplesLeaf
+    size_t minSamplesLeaf,
+    size_t nEstimators,
+    size_t nJobs
 ) {
     // Подготовка целевого признака.
     SupervisedDataset supervisedDataset;
@@ -211,6 +250,171 @@ int runMachineLearning(
     cout << "Задача: "
          << (task == "classification" ? "классификация" : "регрессия")
          << '\n';
+
+    // ========================================================
+    // СРАВНЕНИЕ CART И RANDOM FOREST
+    // ========================================================
+
+    if (modelName == "random_forest") {
+        RandomForestParams forestParams;
+        forestParams.n_estimators = nEstimators;
+        forestParams.n_jobs = nJobs;
+        forestParams.max_depth = maxDepth;
+        forestParams.min_samples_split = minSamplesSplit;
+        forestParams.min_samples_leaf = minSamplesLeaf;
+        forestParams.random_state = 42;
+        forestParams.max_features = FeatureSearchParams{
+            task == "classification" ? FeatureMode::Sqrt : FeatureMode::All,
+            1
+        };
+
+        cout << "\nСравнение CART и Random Forest на одной выборке\n"
+             << "Максимальная глубина: " << maxDepth << '\n'
+             << "Минимум для разбиения: " << minSamplesSplit << '\n'
+             << "Минимум в листе: " << minSamplesLeaf << '\n'
+             << "Количество деревьев: " << nEstimators << '\n'
+             << "Количество потоков: " << nJobs << '\n'
+             << "Bootstrap: включён\n"
+             << "Seed: " << forestParams.random_state << '\n'
+             << "max_features: "
+             << (task == "classification" ? "Sqrt" : "All") << '\n';
+
+        using Clock = chrono::steady_clock;
+
+        if (task == "classification") {
+            CartClassifier cart(maxDepth, minSamplesSplit, minSamplesLeaf);
+            RandomForestClassifier forest(forestParams);
+
+            auto start = Clock::now();
+            cart.fit(trainMatrix, span<const double>(split.train.targets));
+            const double cartFitMs = chrono::duration<double, milli>(
+                Clock::now() - start).count();
+
+            start = Clock::now();
+            forest.fit(trainMatrix, span<const double>(split.train.targets));
+            const double forestFitMs = chrono::duration<double, milli>(
+                Clock::now() - start).count();
+
+            start = Clock::now();
+            const vector<double> cartPredictions = cart.predict(testMatrix);
+            const double cartPredictMs = chrono::duration<double, milli>(
+                Clock::now() - start).count();
+
+            start = Clock::now();
+            const vector<double> forestPredictions = forest.predict(testMatrix);
+            const double forestPredictMs = chrono::duration<double, milli>(
+                Clock::now() - start).count();
+
+            start = Clock::now();
+            const Matrix cartProbabilities = cart.predict_proba(testMatrix);
+            const double cartProbabilityMs = chrono::duration<double, milli>(
+                Clock::now() - start).count();
+
+            start = Clock::now();
+            const Matrix forestProbabilities = forest.predict_proba(testMatrix);
+            const double forestProbabilityMs = chrono::duration<double, milli>(
+                Clock::now() - start).count();
+
+            const vector<double> classes(cart.classes().begin(), cart.classes().end());
+
+            size_t cartCorrect = 0;
+            size_t forestCorrect = 0;
+            for (size_t i = 0; i < split.test.targets.size(); ++i) {
+                cartCorrect += cartPredictions[i] == split.test.targets[i] ? 1U : 0U;
+                forestCorrect += forestPredictions[i] == split.test.targets[i] ? 1U : 0U;
+            }
+
+            cout << fixed << setprecision(3);
+            cout << "\nВремя работы (мс):\n"
+                 << "CART: fit " << cartFitMs
+                 << ", predict " << cartPredictMs
+                 << ", predict_proba " << cartProbabilityMs << '\n'
+                 << "Random Forest: fit " << forestFitMs
+                 << ", predict " << forestPredictMs
+                 << ", predict_proba " << forestProbabilityMs << '\n';
+
+            cout << "\nAccuracy:\n"
+                 << "CART: " << static_cast<double>(cartCorrect) / split.test.targets.size() << '\n'
+                 << "Random Forest: " << static_cast<double>(forestCorrect) / split.test.targets.size() << '\n';
+
+            printCartSummary(cart.summary(), trainProcessed.featureNames);
+            printForestSummary(forest.tree_summaries(), trainProcessed.featureNames);
+
+            const size_t outputCount = min(size_t{10}, forestPredictions.size());
+            cout << "\nПервые " << outputCount << " предсказаний и вероятности классов:\n";
+            for (size_t i = 0; i < outputCount; ++i) {
+                cout << "\nОбъект " << i + 1
+                     << ": факт " << split.test.targets[i]
+                     << ", CART " << cartPredictions[i]
+                     << ", Random Forest " << forestPredictions[i] << '\n';
+                for (size_t j = 0; j < classes.size(); ++j) {
+                    const auto name = classDisplayNames.find(classes[j]);
+                    const string label = name == classDisplayNames.end()
+                        ? to_string(classes[j]) : name->second;
+                    cout << "  Класс " << label
+                         << ": CART " << cartProbabilities(i, j) * 100.0
+                         << "%, Random Forest " << forestProbabilities(i, j) * 100.0
+                         << "%\n";
+                }
+            }
+        } else {
+            CartRegressor cart(maxDepth, minSamplesSplit, minSamplesLeaf);
+            RandomForestRegressor forest(forestParams);
+
+            auto start = Clock::now();
+            cart.fit(trainMatrix, span<const double>(split.train.targets));
+            const double cartFitMs = chrono::duration<double, milli>(
+                Clock::now() - start).count();
+
+            start = Clock::now();
+            forest.fit(trainMatrix, span<const double>(split.train.targets));
+            const double forestFitMs = chrono::duration<double, milli>(
+                Clock::now() - start).count();
+
+            start = Clock::now();
+            const vector<double> cartPredictions = cart.predict(testMatrix);
+            const double cartPredictMs = chrono::duration<double, milli>(
+                Clock::now() - start).count();
+
+            start = Clock::now();
+            const vector<double> forestPredictions = forest.predict(testMatrix);
+            const double forestPredictMs = chrono::duration<double, milli>(
+                Clock::now() - start).count();
+
+            auto calculateMae = [&](const vector<double>& predictions) {
+                double errorSum = 0.0;
+                for (size_t i = 0; i < predictions.size(); ++i) {
+                    errorSum += abs(predictions[i] - split.test.targets[i]);
+                }
+                return errorSum / static_cast<double>(predictions.size());
+            };
+
+            cout << fixed << setprecision(3);
+            cout << "\nВремя работы (мс):\n"
+                 << "CART: fit " << cartFitMs
+                 << ", predict " << cartPredictMs << '\n'
+                 << "Random Forest: fit " << forestFitMs
+                 << ", predict " << forestPredictMs << '\n';
+
+            cout << "\nMAE:\n"
+                 << "CART: " << calculateMae(cartPredictions) << '\n'
+                 << "Random Forest: " << calculateMae(forestPredictions) << '\n';
+
+            printCartSummary(cart.summary(), trainProcessed.featureNames);
+            printForestSummary(forest.tree_summaries(), trainProcessed.featureNames);
+
+            const size_t outputCount = min(size_t{10}, forestPredictions.size());
+            cout << "\nПервые " << outputCount << " предсказаний:\n";
+            cout << "№ | Факт | CART | Random Forest\n";
+            for (size_t i = 0; i < outputCount; ++i) {
+                cout << i + 1 << " | " << split.test.targets[i]
+                     << " | " << cartPredictions[i]
+                     << " | " << forestPredictions[i] << '\n';
+            }
+        }
+
+        return 0;
+    }
 
     // ========================================================
     // КЛАССИФИКАЦИЯ
@@ -604,7 +808,7 @@ options.add_options()
         cxxopts::value<string>()->default_value("minmax"))
     ("e,encode", "Способ кодирования: onehot, ordinal",
         cxxopts::value<string>()->default_value("onehot"))
-    ("model", "Модель: decision_stump, cart",
+    ("model", "Модель: decision_stump, cart, random_forest (сравнение CART и леса)",
         cxxopts::value<string>()->default_value(""))
     ("target", "Название целевого признака",
         cxxopts::value<string>()->default_value("y"))
@@ -614,7 +818,11 @@ options.add_options()
         cxxopts::value<size_t>()->default_value("5"))
     ("min-samples-split", "Минимум объектов для разбиения CART",
         cxxopts::value<size_t>()->default_value("2"))
-    ("min-samples-leaf", "Минимум объектов в листе CART",
+    ("min-samples-leaf", "Минимум объектов в листе CART и Random Forest",
+        cxxopts::value<size_t>()->default_value("1"))
+    ("n-estimators", "Количество деревьев Random Forest",
+        cxxopts::value<size_t>()->default_value("100"))
+    ("n-jobs", "Количество потоков Random Forest",
         cxxopts::value<size_t>()->default_value("1"));
 
 cxxopts::ParseResult arguments;
@@ -679,7 +887,9 @@ if (!modelName.empty()) {
         arguments["task"].as<string>(),
         arguments["max-depth"].as<size_t>(),
         arguments["min-samples-split"].as<size_t>(),
-        arguments["min-samples-leaf"].as<size_t>()
+        arguments["min-samples-leaf"].as<size_t>(),
+        arguments["n-estimators"].as<size_t>(),
+        arguments["n-jobs"].as<size_t>()
     );
 }
 

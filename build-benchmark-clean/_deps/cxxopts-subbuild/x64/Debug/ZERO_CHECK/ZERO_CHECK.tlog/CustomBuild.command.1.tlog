@@ -1,0 +1,10 @@
+^C:\USERS\SWIPE\DOCUMENTS\STUD\PROG\SEM_3\BUILD-BENCHMARK-CLEAN\_DEPS\CXXOPTS-SUBBUILD\CMAKEFILES\92DC1EE8A6086B7511F1D1FF91A21D90\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -SC:/Users/swipe/Documents/stud/prog/sem_3/build-benchmark-clean/_deps/cxxopts-subbuild -BC:/Users/swipe/Documents/stud/prog/sem_3/build-benchmark-clean/_deps/cxxopts-subbuild --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file C:/Users/swipe/Documents/stud/prog/sem_3/build-benchmark-clean/_deps/cxxopts-subbuild/cxxopts-populate.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

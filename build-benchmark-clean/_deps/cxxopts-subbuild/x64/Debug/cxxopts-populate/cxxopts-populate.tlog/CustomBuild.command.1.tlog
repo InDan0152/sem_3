@@ -1,0 +1,150 @@
+^C:\USERS\SWIPE\DOCUMENTS\STUD\PROG\SEM_3\BUILD-BENCHMARK-CLEAN\_DEPS\CXXOPTS-SUBBUILD\CMAKEFILES\7FA0CCFB982859B80385644591F6504F\CXXOPTS-POPULATE-MKDIR.RULE
+setlocal
+"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -Dcfgdir=/Debug -P C:/Users/swipe/Documents/stud/prog/sem_3/build-benchmark-clean/_deps/cxxopts-subbuild/cxxopts-populate-prefix/tmp/cxxopts-populate-mkdirs.cmake
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch C:/Users/swipe/Documents/stud/prog/sem_3/build-benchmark-clean/_deps/cxxopts-subbuild/cxxopts-populate-prefix/src/cxxopts-populate-stamp/Debug/cxxopts-populate-mkdir
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^C:\USERS\SWIPE\DOCUMENTS\STUD\PROG\SEM_3\BUILD-BENCHMARK-CLEAN\_DEPS\CXXOPTS-SUBBUILD\CMAKEFILES\7FA0CCFB982859B80385644591F6504F\CXXOPTS-POPULATE-DOWNLOAD.RULE
+setlocal
+cd C:\Users\swipe\Documents\stud\prog\sem_3\build-benchmark-clean\_deps
+if %errorlevel% neq 0 goto :cmEnd
+C:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE -P C:/Users/swipe/Documents/stud/prog/sem_3/build-benchmark-clean/_deps/cxxopts-subbuild/cxxopts-populate-prefix/tmp/cxxopts-populate-gitclone.cmake
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch C:/Users/swipe/Documents/stud/prog/sem_3/build-benchmark-clean/_deps/cxxopts-subbuild/cxxopts-populate-prefix/src/cxxopts-populate-stamp/Debug/cxxopts-populate-download
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^C:\USERS\SWIPE\DOCUMENTS\STUD\PROG\SEM_3\BUILD-BENCHMARK-CLEAN\_DEPS\CXXOPTS-SUBBUILD\CMAKEFILES\7FA0CCFB982859B80385644591F6504F\CXXOPTS-POPULATE-UPDATE.RULE
+setlocal
+cd C:\Users\swipe\Documents\stud\prog\sem_3\build-benchmark-clean\_deps\cxxopts-src
+if %errorlevel% neq 0 goto :cmEnd
+C:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -Dcan_fetch=YES -DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE -P C:/Users/swipe/Documents/stud/prog/sem_3/build-benchmark-clean/_deps/cxxopts-subbuild/cxxopts-populate-prefix/tmp/cxxopts-populate-gitupdate.cmake
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^C:\USERS\SWIPE\DOCUMENTS\STUD\PROG\SEM_3\BUILD-BENCHMARK-CLEAN\_DEPS\CXXOPTS-SUBBUILD\CMAKEFILES\7FA0CCFB982859B80385644591F6504F\CXXOPTS-POPULATE-PATCH.RULE
+setlocal
+"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch C:/Users/swipe/Documents/stud/prog/sem_3/build-benchmark-clean/_deps/cxxopts-subbuild/cxxopts-populate-prefix/src/cxxopts-populate-stamp/Debug/cxxopts-populate-patch
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^C:\USERS\SWIPE\DOCUMENTS\STUD\PROG\SEM_3\BUILD-BENCHMARK-CLEAN\_DEPS\CXXOPTS-SUBBUILD\CMAKEFILES\7FA0CCFB982859B80385644591F6504F\CXXOPTS-POPULATE-CONFIGURE.RULE
+setlocal
+cd C:\Users\swipe\Documents\stud\prog\sem_3\build-benchmark-clean\_deps\cxxopts-build
+if %errorlevel% neq 0 goto :cmEnd
+C:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch C:/Users/swipe/Documents/stud/prog/sem_3/build-benchmark-clean/_deps/cxxopts-subbuild/cxxopts-populate-prefix/src/cxxopts-populate-stamp/Debug/cxxopts-populate-configure
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^C:\USERS\SWIPE\DOCUMENTS\STUD\PROG\SEM_3\BUILD-BENCHMARK-CLEAN\_DEPS\CXXOPTS-SUBBUILD\CMAKEFILES\7FA0CCFB982859B80385644591F6504F\CXXOPTS-POPULATE-BUILD.RULE
+setlocal
+cd C:\Users\swipe\Documents\stud\prog\sem_3\build-benchmark-clean\_deps\cxxopts-build
+if %errorlevel% neq 0 goto :cmEnd
+C:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch C:/Users/swipe/Documents/stud/prog/sem_3/build-benchmark-clean/_deps/cxxopts-subbuild/cxxopts-populate-prefix/src/cxxopts-populate-stamp/Debug/cxxopts-populate-build
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^C:\USERS\SWIPE\DOCUMENTS\STUD\PROG\SEM_3\BUILD-BENCHMARK-CLEAN\_DEPS\CXXOPTS-SUBBUILD\CMAKEFILES\7FA0CCFB982859B80385644591F6504F\CXXOPTS-POPULATE-INSTALL.RULE
+setlocal
+cd C:\Users\swipe\Documents\stud\prog\sem_3\build-benchmark-clean\_deps\cxxopts-build
+if %errorlevel% neq 0 goto :cmEnd
+C:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch C:/Users/swipe/Documents/stud/prog/sem_3/build-benchmark-clean/_deps/cxxopts-subbuild/cxxopts-populate-prefix/src/cxxopts-populate-stamp/Debug/cxxopts-populate-install
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^C:\USERS\SWIPE\DOCUMENTS\STUD\PROG\SEM_3\BUILD-BENCHMARK-CLEAN\_DEPS\CXXOPTS-SUBBUILD\CMAKEFILES\7FA0CCFB982859B80385644591F6504F\CXXOPTS-POPULATE-TEST.RULE
+setlocal
+cd C:\Users\swipe\Documents\stud\prog\sem_3\build-benchmark-clean\_deps\cxxopts-build
+if %errorlevel% neq 0 goto :cmEnd
+C:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch C:/Users/swipe/Documents/stud/prog/sem_3/build-benchmark-clean/_deps/cxxopts-subbuild/cxxopts-populate-prefix/src/cxxopts-populate-stamp/Debug/cxxopts-populate-test
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^C:\USERS\SWIPE\DOCUMENTS\STUD\PROG\SEM_3\BUILD-BENCHMARK-CLEAN\_DEPS\CXXOPTS-SUBBUILD\CMAKEFILES\44CF05E21EFD5A3856265DFABEB3303C\CXXOPTS-POPULATE-COMPLETE.RULE
+setlocal
+"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E make_directory C:/Users/swipe/Documents/stud/prog/sem_3/build-benchmark-clean/_deps/cxxopts-subbuild/CMakeFiles/Debug
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch C:/Users/swipe/Documents/stud/prog/sem_3/build-benchmark-clean/_deps/cxxopts-subbuild/CMakeFiles/Debug/cxxopts-populate-complete
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch C:/Users/swipe/Documents/stud/prog/sem_3/build-benchmark-clean/_deps/cxxopts-subbuild/cxxopts-populate-prefix/src/cxxopts-populate-stamp/Debug/cxxopts-populate-done
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^C:\USERS\SWIPE\DOCUMENTS\STUD\PROG\SEM_3\BUILD-BENCHMARK-CLEAN\_DEPS\CXXOPTS-SUBBUILD\CMAKEFILES\92DC1EE8A6086B7511F1D1FF91A21D90\CXXOPTS-POPULATE.RULE
+setlocal
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^C:\USERS\SWIPE\DOCUMENTS\STUD\PROG\SEM_3\BUILD-BENCHMARK-CLEAN\_DEPS\CXXOPTS-SUBBUILD\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -SC:/Users/swipe/Documents/stud/prog/sem_3/build-benchmark-clean/_deps/cxxopts-subbuild -BC:/Users/swipe/Documents/stud/prog/sem_3/build-benchmark-clean/_deps/cxxopts-subbuild --check-stamp-file C:/Users/swipe/Documents/stud/prog/sem_3/build-benchmark-clean/_deps/cxxopts-subbuild/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

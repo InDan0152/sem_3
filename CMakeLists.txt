@@ -118,6 +118,16 @@ include(CTest)
 
 if(BUILD_TESTING)
 
+# Отдельная Release-цель для воспроизводимого benchmark Random Forest.
+add_executable(random_forest_benchmark
+    src/random_forest_benchmark.cpp
+)
+
+target_link_libraries(
+    random_forest_benchmark
+    PRIVATE lab1_core
+)
+
 # Тесты Random Forest
 add_executable(random_forest_tests
     test/random_forest_tests.cpp

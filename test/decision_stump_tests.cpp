@@ -583,7 +583,7 @@ void test_single_class_classification() {
 void test_single_object_training() {
     Matrix features(vector<vector<double>>{{2.5}});
 
-    for (const auto [criterion, targetValue] : {
+    for (const auto& [criterion, targetValue] : {
              pair{SplitCriterion::Variance, 17.0},
              pair{SplitCriterion::Gini, 42.0}
          }) {
