@@ -92,21 +92,11 @@ const char* compilerName() { return "Unknown compiler"; }
 
 std::string processorName() {
 #ifdef _WIN32
-    char* value = nullptr;
-    std::size_t size = 0;
-
-    if (_dupenv_s(&value, &size, "PROCESSOR_IDENTIFIER") == 0 &&
-        value != nullptr) {
-        std::string result(value);
-        std::free(value);
-        return result;
-    }
-
-    return "not available (PROCESSOR_IDENTIFIER)";
+    const char* value = std::getenv("PROCESSOR_IDENTIFIER");
+    return value != nullptr ? value : "not available (PROCESSOR_IDENTIFIER)";
 #elif defined(__linux__)
     std::ifstream cpuInfo("/proc/cpuinfo");
     std::string line;
-
     while (std::getline(cpuInfo, line)) {
         const std::string key = "model name";
         if (line.rfind(key, 0) == 0) {
@@ -116,10 +106,9 @@ std::string processorName() {
             }
         }
     }
-
     return "not available (/proc/cpuinfo)";
 #else
-    return "not available";
+    return "not available on this platform";
 #endif
 }
 
